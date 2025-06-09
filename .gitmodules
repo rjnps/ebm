@@ -1,0 +1,6 @@
+[submodule "data/LIBERO"]
+	path = data/LIBERO
+	url = https://github.com/Lifelong-Robot-Learning/LIBERO.git
+[submodule "r3m"]
+	path = r3m
+	url = https://github.com/facebookresearch/r3m.git

@@ -1,0 +1,10 @@
+defaults:
+  - _self_
+  - data: libero
+  - policy: core_transformer
+  - train: default
+  - eval: default
+
+# for LIBERO
+task_embedding_format: "bert"
+task_embedding_one_hot_offset: 1
