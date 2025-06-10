@@ -26,8 +26,8 @@ class SelfAttention(nn.Module):
                                           nn.Dropout(dropout))
 
     def forward(self, x, mask=None):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        B, T, C = x.shape
+        qkv = self.qkv(x).reshape(B, T, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
         # each of q, k, v has this dim -> [batch, num_head, num_vectors_in_a_batch, vector_size]
 
@@ -276,7 +276,8 @@ class AggregateFeatures(nn.Module):
             x = x.transpose(1, 2)
             return self.layer(x).squeeze(-1)
 
-class MLPHead(nn.module):
+
+class MLPHead(nn.Module):
     def __init__(self, input_size, dropout):
         super().__init__()
         drop_out = nn.Dropout(dropout) if self.training or dropout > 0.0 else nn.Identity()
@@ -291,3 +292,8 @@ class MLPHead(nn.module):
 
     def forward(self, x):
         return self.mlp_head(x)
+
+
+class LatentEncoder(nn.Module):
+    def __init__(self, input_size):
+        super().__init__()

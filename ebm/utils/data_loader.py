@@ -83,7 +83,7 @@ class DataSet():
             )
 
             for (idx, data) in enumerate(train_dataloader):
-                pp.pprint(idx)
+                pp.pprint(data["obs"]["agentview_rgb"])
 
                 # ['actions', 'obs', 'task_emb']
                 obs_keys = ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']

@@ -7,6 +7,7 @@ from ebm.models.core_transformer import (CoreTransformer,
                                          AggregateFeatures)
 import copy
 import robomimic.utils.tensor_utils as TensorUtils
+from ebm.models.encoder_image import R3MEncoder
 
 
 class EnergyModel(BasePolicy):
@@ -52,8 +53,21 @@ class EnergyModel(BasePolicy):
 
         self.agg_feats = AggregateFeatures(policy_cfg)
 
+        # latent token
+        self.embed_size_inp = embed_size_inp
+
+        if policy_cfg.latent_token == "init_random":
+            self.latent_token = nn.Parameter(torch.randn(embed_size_inp), requires_grad=True)
+        else:
+            # from observations
+            self.latent_token = self.get_latent_from_observation(policy_cfg.latent_token)
+
+    def get_latent_from_observation(self, init_method):
+        raise NotImplementedError
+
     def encode_inp_cond(self, data):
         encoded_inp = []
+        encoded_task = []
         enc_proprio = self.proprio_encoder(data["obs"])
         encoded_inp.append(enc_proprio)  # [B, H, 1, d1]
 
@@ -70,6 +84,11 @@ class EnergyModel(BasePolicy):
         else:
             raise NotImplementedError
 
+        # adding latent tokens to the encoded input
+        expanded_latent_token = self.latent_token.view(1, 1, 1, self.embed_size_inp).expand(B, H, 1, self.embed_size_inp)
+        encoded_inp.append(expanded_latent_token)
+
+        # concatenating over modality token dimension
         encoded_inp = torch.cat(encoded_inp, dim=-2)
         return encoded_inp, encoded_task
 
@@ -92,8 +111,27 @@ class EnergyModel(BasePolicy):
 
         # Reshaping to input shape
         x = x.reshape(*shape_inp)
+        # last modality is for latent vector -> parameter for dmp
+        latent_out = x[:, :, -1]
+        agg_latent = self.agg_feats(latent_out)
+        out = self.energy_head(agg_latent)
 
+        return out
 
-        return x[:, :, 0]  # [B, ]
+    def forward(self, data):
+        data = self.preprocess_input(data, train_mode=True)
+        x, c = self.encode_inp_cond(data)
+        energy = self.core_transformer_decoder(x, c)
+        return energy
+
+    def get_energy(self, data):
+        # Todo: Implement a latent queue for history
+        raise NotImplementedError
+        # self.eval()
+        # with torch.no_grad():
+        #     data = self.preprocess_input(data, train_mode=False)
+        #     x, c = self.encode_inp_cond(data)
+        #     energy = self.core_transformer_decoder(x, c)
+
 
 
