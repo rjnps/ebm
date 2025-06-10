@@ -10,6 +10,7 @@ from libero.libero.benchmark import get_benchmark
 from libero.lifelong.datasets import (GroupedTaskDataset, SequenceVLDataset, get_dataset)
 from libero.lifelong.utils import (get_task_embs, safe_device, create_experiment_dir)
 from torch.utils.data import DataLoader, RandomSampler
+import torchvision.transforms as T
 
 
 pp = pprint.PrettyPrinter(indent=2)
@@ -83,7 +84,14 @@ class DataSet():
             )
 
             for (idx, data) in enumerate(train_dataloader):
-                pp.pprint(data["obs"]["agentview_rgb"])
+
+                pp.pprint(data['obs']['gripper_states'])
+                # B, To, C, H, W = data["obs"]["agentview_rgb"].shape
+                # img = data["obs"]["agentview_rgb"].view(B*To, C, H, W)
+                # img = T.Resize(224)(img)
+                # print(img[0, 0, 100, 100])
+                # print("prior shape: ", data["obs"]["agentview_rgb"].shape)
+                # print("reshaped: ", img.shape)
 
                 # ['actions', 'obs', 'task_emb']
                 obs_keys = ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']

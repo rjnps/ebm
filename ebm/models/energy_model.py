@@ -7,15 +7,16 @@ from ebm.models.core_transformer import (CoreTransformer,
                                          AggregateFeatures)
 import copy
 import robomimic.utils.tensor_utils as TensorUtils
-from ebm.models.encoder_image import R3MEncoder
+from ebm.models.encoder_image import R3MEncoder, FineTuneEncoderImage
+from ebm.models.encoder_language import FineTuneEncoderLanguage
 
 
 class EnergyModel(BasePolicy):
     def __init__(self,
                  cfg,
                  shape_meta,
-                 embed_size_inp,
-                 embed_size_cond,
+                 embed_size_inp=256,
+                 embed_size_cond=256,
                  load_encoded_data=True):
         super().__init__(cfg, shape_meta)
         policy_cfg = cfg.policy
@@ -46,9 +47,18 @@ class EnergyModel(BasePolicy):
 
         self.load_encoded_data = load_encoded_data
 
+        # pretrained image and text encoder
+        self.image_encoder_pre = eval(policy_cfg.image_encoder.network)()
+
         # TODO: Add small MLPs here
-        self.image_encoder = None
-        self.text_encoder = None
+        self.image_encoder_finetune = FineTuneEncoderImage(
+            in_fts=policy_cfg.image_encoder.network_kwargs.finetune_in_fts,
+            out_fts=embed_size_inp)
+
+        self.text_encoder = FineTuneEncoderLanguage(
+            in_fts=policy_cfg.language_encoder.network_kwargs.input_size,
+            out_fts=embed_size_cond)
+
         self.proprio_encoder = None
 
         self.agg_feats = AggregateFeatures(policy_cfg)

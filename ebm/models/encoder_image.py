@@ -14,10 +14,13 @@ class R3MEncoder(nn.Module):
         self.r3m_model.eval()
         self.r3m_model.to(device)
 
-    def forward(self, image):
+    def forward(self, images):
         # input shape -> [B*H, c, h, w]
+        # preprocess the input images
+        images = T.Resize(224)(images)
         with torch.no_grad():
-            embedding = self.r3m_model(image*255.0)
+            # R3M expects inputs in the range of 0 - 255
+            embedding = self.r3m_model(images*255.0)
         return embedding
 
 
@@ -26,3 +29,18 @@ class ResNetEncoder(nn.Module):
         super().__init__()
         self.device = device
         raise NotImplementedError
+
+
+class FineTuneEncoderImage(nn.Module):
+    def __init__(self, in_fts=2048, out_fts=512):
+        super().__init__()
+        self.finetuner = nn.Sequential(
+            nn.Linear(in_fts, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, out_fts)
+        )
+
+    def forward(self, x):
+        return self.finetuner(x)

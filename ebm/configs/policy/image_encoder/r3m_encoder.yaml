@@ -2,3 +2,4 @@ network: R3MEncoder
 network_kwargs:
     device: cuda
     finetune: True
+    finetune_in_fts: 2048
