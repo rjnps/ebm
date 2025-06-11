@@ -8,3 +8,4 @@ defaults:
 # for LIBERO
 task_embedding_format: "bert"
 task_embedding_one_hot_offset: 1
+encode_gripper_cam: True

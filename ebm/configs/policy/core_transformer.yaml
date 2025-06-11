@@ -11,9 +11,9 @@ transformer_mlp_hidden_size: 256
 transformer_dropout: 0.1
 transformer_max_seq_len: 10
 
-agg_feat: AvgPool
+agg_feat: "AvgPool"
 horizon: 3
-latent_token: init_random
+latent_token: "init_random"
 
 defaults:
     - data_augmentation@color_aug: batch_wise_img_color_jitter_group_aug.yaml
@@ -22,3 +22,4 @@ defaults:
     - language_encoder: mlp_encoder.yaml
     - position_encoding@temporal_position_encoding: sinusoidal_position_encoding.yaml
     - policy_head: mlp_head.yaml
+    - proprio_encoder: mlp_encoder.yaml

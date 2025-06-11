@@ -9,6 +9,7 @@ import copy
 import robomimic.utils.tensor_utils as TensorUtils
 from ebm.models.encoder_image import R3MEncoder, FineTuneEncoderImage
 from ebm.models.encoder_language import FineTuneEncoderLanguage
+from ebm.models.encoder_proprio import EncoderProprio
 
 
 class EnergyModel(BasePolicy):
@@ -20,6 +21,7 @@ class EnergyModel(BasePolicy):
                  load_encoded_data=True):
         super().__init__(cfg, shape_meta)
         policy_cfg = cfg.policy
+        self.cfg = cfg
 
         # Pos Encoding
         input_pos_encoding = copy.deepcopy(policy_cfg.temporal_position_encoding)
@@ -50,16 +52,29 @@ class EnergyModel(BasePolicy):
         # pretrained image and text encoder
         self.image_encoder_pre = eval(policy_cfg.image_encoder.network)()
 
-        # TODO: Add small MLPs here
-        self.image_encoder_finetune = FineTuneEncoderImage(
+        self.static_image_encoder_finetune = FineTuneEncoderImage(
             in_fts=policy_cfg.image_encoder.network_kwargs.finetune_in_fts,
-            out_fts=embed_size_inp)
+            out_fts=embed_size_inp
+        )
+
+        if cfg.encode_gripper_cam:
+            self.gripper_image_encoder_finetune = FineTuneEncoderImage(
+                in_fts=policy_cfg.image_encoder.network_kwargs.finetune_in_fts,
+                out_fts=embed_size_inp
+            )
 
         self.text_encoder = FineTuneEncoderLanguage(
             in_fts=policy_cfg.language_encoder.network_kwargs.input_size,
-            out_fts=embed_size_cond)
+            out_fts=embed_size_cond
+        )
 
-        self.proprio_encoder = None
+        self.proprio_encoder = EncoderProprio(policy_cfg.proprio_encoder.proprio_encoder_type,
+                                              use_joint=True,
+                                              use_gripper=True,
+                                              use_ee=False,
+                                              out_dim=embed_size_inp,
+                                              dropout=policy_cfg.proprio_encoder.dropout
+                                              )
 
         self.agg_feats = AggregateFeatures(policy_cfg)
 
@@ -77,22 +92,33 @@ class EnergyModel(BasePolicy):
 
     def encode_inp_cond(self, data):
         encoded_inp = []
-        encoded_task = []
+
+        # encode proprioceptive observation
         enc_proprio = self.proprio_encoder(data["obs"])
         encoded_inp.append(enc_proprio)  # [B, H, 1, d1]
 
-        B, H = enc_proprio.shape[:2]
+        # encode static image
+        image_static = data['obs']['agentview_rgb'] # [B, H, c, h, w]
+        B, H, C, He, Wi = image_static.shape
+        with torch.no_grad():
+            encoded_static_image_pre = self.image_encoder_pre(image_static.reshape(B*H, C, He, Wi))
+        encoded_static_image = self.static_image_encoder_finetune(encoded_static_image_pre)
+        encoded_static_image = encoded_static_image.reshape(B, H, 1, -1)
+        encoded_inp.append(encoded_static_image)
 
-        if self.load_encoded_data:
-            for img_name in data["img_names"]:
-                encoded_img = self.image_encoder(data["encoded_img"][img_name])
-                encoded_inp.append(encoded_img)  # [B, H, 1, d2]
+        # encode gripper image
+        if self.cfg.encode_gripper_cam:
+            image_gripper = data['obs']['eye_in_hand_rgb']
+            B, H, C, He, Wi = image_gripper.shape
+            with torch.no_grad():
+                encoded_gripper_image_pre = self.image_encoder_pre(image_gripper.reshape(B*H, C, He, Wi))
+            encoded_gripper_image = self.gripper_image_encoder_finetune(encoded_gripper_image_pre)
+            encoded_gripper_image = encoded_gripper_image.reshape(B, H, 1, -1)
+            encoded_inp.append(encoded_gripper_image)
 
-            for task_name in data["task_names"]:
-                encoded_task = self.text_encoder(data["encoded_task"][task_name])  # [B, d3]
-                encoded_task = encoded_task.view(B, 1, 1, -1).expand(-1, H, -1, -1)
-        else:
-            raise NotImplementedError
+        # encode text
+        encoded_text = self.text_encoder(data["task_emb"]) # [B, dim]
+        encoded_text = encoded_text.view(B, 1, 1, -1).expand(-1, H, -1, -1) # [B, H, 1, dim]
 
         # adding latent tokens to the encoded input
         expanded_latent_token = self.latent_token.view(1, 1, 1, self.embed_size_inp).expand(B, H, 1, self.embed_size_inp)
@@ -100,7 +126,7 @@ class EnergyModel(BasePolicy):
 
         # concatenating over modality token dimension
         encoded_inp = torch.cat(encoded_inp, dim=-2)
-        return encoded_inp, encoded_task
+        return encoded_inp, encoded_text
 
     def core_transformer_decoder(self, x, c):
         # x -> (B, H, num_modality, E)

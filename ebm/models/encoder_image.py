@@ -20,7 +20,7 @@ class R3MEncoder(nn.Module):
         images = T.Resize(224)(images)
         with torch.no_grad():
             # R3M expects inputs in the range of 0 - 255
-            embedding = self.r3m_model(images*255.0)
+            embedding = self.r3m_model(images*255.0) # [B*H, 2048]
         return embedding
 
 

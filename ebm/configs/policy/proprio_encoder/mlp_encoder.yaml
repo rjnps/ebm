@@ -1,0 +1,2 @@
+proprio_encoder_type: "grouped" # or separate
+dropout: 0.1
