@@ -124,7 +124,7 @@ class DropPath(nn.Module):
 class TransformerFeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.0):
         super().__init__()
-        self.net = nn.sequential(
+        self.net = nn.Sequential(
             nn.Linear(dim, hidden_dim),
             nn.GELU(), # GELU used in GPT-3 and BERT
             nn.Dropout(dropout),
@@ -185,13 +185,13 @@ class CoreTransformer(nn.Module):
                         Norm(input_size),
                         SelfAttention(input_size,
                                       num_heads=num_heads,
-                                      head_output_size=head_output_size,
+                                      head_out_size=head_output_size,
                                       dropout=dropout),
                         Norm(input_size),
                         CrossAttention(input_size,
                                        input_size_cond,
                                        num_heads=num_heads,
-                                       head_output_size=head_output_size,
+                                       head_out_size=head_output_size,
                                        dropout=dropout
                                        ),
                         Norm(input_size),

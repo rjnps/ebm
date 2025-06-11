@@ -1,4 +1,4 @@
-network: TranslationAug
+network: TranslationAugmentation
 
 network_kwargs:
   input_shape: null

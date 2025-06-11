@@ -16,10 +16,10 @@ import torchvision.transforms as T
 pp = pprint.PrettyPrinter(indent=2)
 
 
-class DataSet():
+class LiberoDataset():
     def __init__(self,
-                 config_path,
-                 config_name,
+                 cfg,
+                 benchmark_name,
                  data_folder_path,
                  bddl_folder_path,
                  init_states_folder_path):
@@ -28,12 +28,6 @@ class DataSet():
         os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
         # init hydra
-        hydra.initialize(config_path=config_path,)
-        hydra_cfg = hydra.compose(config_name=config_name)
-        yaml_config = OmegaConf.to_yaml(hydra_cfg)
-        cfg = EasyDict(yaml.safe_load(yaml_config))
-
-        pp.pprint(cfg.policy)
 
         cfg.folder = data_folder_path
         cfg.bddl_folder = bddl_folder_path
@@ -44,7 +38,7 @@ class DataSet():
 
         # load benchmark
         task_order = cfg.data.task_order_index
-        cfg.benchmark_name = "libero_goal"
+        cfg.benchmark_name = benchmark_name
         benchmark = get_benchmark(cfg.benchmark_name)(task_order)
 
         # prepare datasets from benchmark
@@ -70,7 +64,7 @@ class DataSet():
         self.datasets = [SequenceVLDataset(ds, emb) for (ds, emb) in zip(datasets, task_embs)]
         self.n_demos = [data.n_demos for data in datasets]
         self.n_sequences = [data.total_num_sequences for data in datasets]
-
+        self.shape_meta = shape_meta
         self.cfg = cfg
 
     def experiments(self):
