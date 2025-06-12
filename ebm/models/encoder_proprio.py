@@ -40,7 +40,7 @@ class EncoderProprio(nn.Module):
         else:
             raise NotImplementedError
 
-    def forward(self, data):
+    def get_input_data(self, data):
         torch_list = []
         if self.use_joint:
             torch_list.append(data['joint_states'])
@@ -53,6 +53,8 @@ class EncoderProprio(nn.Module):
             x = torch.cat(torch_list, dim=-1)
         else:
             raise NotImplementedError
+        return x
 
+    def forward(self, x):
         return self.layers(x).unsqueeze(-2)
 

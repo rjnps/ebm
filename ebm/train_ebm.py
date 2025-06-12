@@ -40,6 +40,7 @@ class TrainEBM:
         self.energy_model = EnergyModel(
             self.cfg,
             self.data_sets.shape_meta,
+            self.data_sets.get_batch_size(),
             embed_size_inp=self.cfg.policy.embed_size,
             embed_size_cond=self.cfg.policy.embed_size,
             load_encoded_data=True

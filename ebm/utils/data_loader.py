@@ -24,11 +24,6 @@ class LiberoDataset():
                  bddl_folder_path,
                  init_states_folder_path):
 
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        os.environ['PYOPENGL_PLATFORM'] = 'egl'
-
-        # init hydra
-
         cfg.folder = data_folder_path
         cfg.bddl_folder = bddl_folder_path
         cfg.init_states_folder = init_states_folder_path
@@ -67,6 +62,25 @@ class LiberoDataset():
         self.shape_meta = shape_meta
         self.cfg = cfg
 
+    def get_batch_size(self):
+        assert self.n_tasks > 0
+
+        for i in trange(self.n_tasks):
+            train_dataloader = DataLoader(
+                self.datasets[i],
+                batch_size=self.cfg.train.batch_size,
+                num_workers=self.cfg.train.num_workers,
+                sampler=RandomSampler(self.datasets[i]),
+                persistent_workers=True,
+            )
+            break
+
+        for (idx, data) in enumerate(train_dataloader):
+            batch_size = data['obs']['joint_states'].shape[0]
+            break
+
+        return batch_size
+
     def experiments(self):
         for i in trange(self.n_tasks):
             train_dataloader = DataLoader(
@@ -79,7 +93,7 @@ class LiberoDataset():
 
             for (idx, data) in enumerate(train_dataloader):
 
-                pp.pprint(data['obs']['gripper_states'])
+                pp.pprint(data['obs']['joint_states'][0, :, :])
                 # B, To, C, H, W = data["obs"]["agentview_rgb"].shape
                 # img = data["obs"]["agentview_rgb"].view(B*To, C, H, W)
                 # img = T.Resize(224)(img)
@@ -101,10 +115,25 @@ class LiberoDataset():
                 """
 
 if __name__ == "__main__":
-    d = DataSet(config_path="../configs",
-                config_name="config",
-                data_folder_path="/home/nune/ebm/data/LIBERO/libero/datasets",
-                bddl_folder_path="/home/nune/ebm/data/LIBERO/libero/libero/bddl_file",
-                init_states_folder_path="/home/nune/ebm/data/LIBERO/libero/libero/init_files")
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ['PYOPENGL_PLATFORM'] = 'egl'
+
+    config_path = "../configs"
+    config_name = "config"
+    data_folder_path = "/home/nune/ebm/data/LIBERO/libero/datasets"
+    bddl_folder_path = "/home/nune/ebm/data/LIBERO/libero/libero/bddl_file"
+    init_states_folder_path = "/home/nune/ebm/data/LIBERO/libero/libero/init_files"
+
+    hydra.initialize(config_path=config_path)
+    hydra_cfg = hydra.compose(config_name=config_name)
+    yaml_config = OmegaConf.to_yaml(hydra_cfg)
+    cfg = EasyDict(yaml.safe_load(yaml_config))
+
+    d = LiberoDataset(cfg,
+                      "libero_goal",
+                      data_folder_path,
+                      bddl_folder_path,
+                      init_states_folder_path
+                      )
 
     d.experiments()
