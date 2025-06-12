@@ -1,0 +1,13 @@
+num_steps:
+
+step_size_proprio:
+step_size_static_img:
+step_size_gripper_img:
+step_size_latent:
+
+noise_scale_proprio:
+noise_scale_static_img:
+noise_scale_gripper_img:
+noise_scale_latent:
+
+clip_grad_norm:

@@ -81,12 +81,7 @@ class EnergyModel(BasePolicy):
 
         # latent token
         self.embed_size_inp = embed_size_inp
-
-        if policy_cfg.latent_token == "init_random":
-            self.latent_token = nn.Parameter(torch.randn(batch_size, embed_size_inp), requires_grad=True)
-        else:
-            # from observations
-            self.latent_token = self.get_latent_from_observation(policy_cfg.latent_token)
+        self.batch_size = batch_size
 
     def get_latent_from_observation(self, init_method):
         raise NotImplementedError
@@ -208,16 +203,16 @@ class EnergyModel(BasePolicy):
             # todo: complete this function
             raise NotImplementedError
 
-    def mcmc_sampling(self,
-                      num_steps,
-                      data,
-                      inp_proprio,
-                      encoded_static_image_pre,
-                      encoded_gripper_image_pre,
-                      step_sizes,  # [proprio, static_img, gripper_img, latent]
-                      noise_scales,
-                      clip_grad_norm=None  # 1.0
-                      ):
+    def mcmc_sampling_all(self,
+                          num_steps,
+                          data,
+                          inp_proprio,
+                          encoded_static_image_pre,
+                          encoded_gripper_image_pre,
+                          step_sizes,  # [proprio, static_img, gripper_img, latent]
+                          noise_scales,
+                          clip_grad_norm=None  # 1.0
+                          ):
         # past observations
         B, H = inp_proprio.shape[:2]
         past_inp_proprio = inp_proprio[:, :-1]
@@ -272,15 +267,15 @@ class EnergyModel(BasePolicy):
             curr_inp_proprio = (curr_inp_proprio - (0.5 * step_sizes[0] * grad_inp_proprio) +
                                 (noise_scales[0] * torch.randn_like(curr_inp_proprio)))
 
-            curr_img_static = (curr_img_static - (0.5 * step_sizes[0] * grad_inp_static) +
-                               (noise_scales[0] * torch.randn_like(curr_img_static)))
+            curr_img_static = (curr_img_static - (0.5 * step_sizes[1] * grad_inp_static) +
+                               (noise_scales[1] * torch.randn_like(curr_img_static)))
 
             if self.cfg.encode_gripper_cam:
-                curr_img_gripper = (curr_img_gripper - (0.5 * step_sizes[0] * grad_inp_gripper) +
-                                    (noise_scales[0] * torch.randn_like(curr_img_gripper)))
+                curr_img_gripper = (curr_img_gripper - (0.5 * step_sizes[2] * grad_inp_gripper) +
+                                    (noise_scales[2] * torch.randn_like(curr_img_gripper)))
 
-            latent_token = (latent_token - (0.5 * step_sizes[0] * grad_inp_latent) +
-                            (noise_scales[0] * torch.randn_like(latent_token)))
+            latent_token = (latent_token - (0.5 * step_sizes[3] * grad_inp_latent) +
+                            (noise_scales[3] * torch.randn_like(latent_token)))
 
             # detaching gradients
             curr_inp_proprio = curr_inp_proprio.detach()
@@ -294,6 +289,43 @@ class EnergyModel(BasePolicy):
         else:
             return curr_inp_proprio, curr_img_static, latent_token
 
+    def mcmc_sampling_latent(self,
+                             num_steps,
+                             data,
+                             inp_proprio,
+                             encoded_static_image_pre,
+                             encoded_gripper_image_pre,
+                             step_size,  # [proprio, static_img, gripper_img, latent]
+                             noise_scale,
+                             clip_grad_norm=None  # 1.0
+                             ):
+
+        # current observations
+        latent_token = self.latent_token.clone().detach().requires_grad_(True)
+
+        for _ in range(num_steps):
+            # compute energy
+            x, c = self.encode_inp_cond(data,
+                                        latent_token,
+                                        inp_proprio,
+                                        encoded_static_image_pre,
+                                        encoded_gripper_image_pre)
+            energy = self.core_transformer_decoder(x, c)  # scalar energy
+
+            # compute gradients
+            grad_inp_latent = torch.autograd.grad( energy, latent_token)
+
+            # Gradient Clipping for stability
+            if clip_grad_norm is not None:
+                grad_inp_latent = torch.nn.utils.clip_grad_norm_(grad_inp_latent, clip_grad_norm)
+
+            latent_token = (latent_token - (0.5 * step_size * grad_inp_latent) +
+                            (noise_scale * torch.randn_like(latent_token)))
+
+            # detaching gradients
+            latent_token = latent_token.detach()
+
+            return latent_token
 
     def core_transformer_decoder(self, x, c):
         # x -> (B, H, num_modality, E)
@@ -328,11 +360,28 @@ class EnergyModel(BasePolicy):
         else:
             inp_proprio, encoded_static_image_pre = self.get_inputs_to_model(data)
             encoded_gripper_image_pre = None
+
+        if self.cfg.policy_cfg.latent_token == "init_random":
+            latent_token = torch.randn(self.batch_size, self.embed_size_inp, device=self.energy_head.device, requires_grad=True)
+        else:
+            # from observations
+            latent_token = self.get_latent_from_observation(self.cfg.policy_cfg.latent_token)
+
+        latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.,
+                                                 data,
+                                                 inp_proprio,
+                                                 encoded_static_image_pre,
+                                                 encoded_gripper_image_pre,
+                                                 step_size,  # [proprio, static_img, gripper_img, latent]
+                                                 noise_scale,
+                                                 clip_grad_norm=None  # 1.0)
+
         x, c = self.encode_inp_cond(data,
-                                    self.latent_token,
+                                    latent_token,
                                     inp_proprio,
                                     encoded_static_image_pre,
                                     encoded_gripper_image_pre)
+
         energy = self.core_transformer_decoder(x, c)
         return energy
 
