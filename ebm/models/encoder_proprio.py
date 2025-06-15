@@ -49,8 +49,9 @@ class EncoderProprio(nn.Module):
         if self.use_ee:
             torch_list.append(data['ee_states'])
 
-        if self.proprio_enc_type == "grouped":
+        if self.proprio_encoder_type == "grouped":
             x = torch.cat(torch_list, dim=-1)
+            x = x.to("cuda")
         else:
             raise NotImplementedError
         return x

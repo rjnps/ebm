@@ -54,7 +54,6 @@ class SelfAttention(nn.Module):
 
         attn = attn.softmax(dim=-1)
         self.attn_weights = attn
-
         out = rearrange(torch.matmul(attn, v), "b h n d -> b n (h d)")
         out = self.output_layer(out)
         return out
@@ -66,23 +65,25 @@ class CrossAttention(nn.Module):
         self.num_heads = num_heads
         self.attn_scale = head_out_size ** (-0.5)
 
-        self.q_proj = nn.Linear(dim_inp, head_out_size, bias=False)
-        self.k_proj = nn.Linear(dim_cond, head_out_size, bias=False)
-        self.v_proj = nn.Linear(dim_cond, head_out_size, bias=False)
+        self.q_proj = nn.Linear(dim_inp, num_heads*head_out_size, bias=False)
+        self.k_proj = nn.Linear(dim_cond, num_heads*head_out_size, bias=False)
+        self.v_proj = nn.Linear(dim_cond, num_heads*head_out_size, bias=False)
 
         self.output_layer = nn.Sequential(nn.Linear(num_heads*head_out_size, dim_inp),
                                           nn.Dropout(dropout))
 
-    def forward(self, x, c,  mask=None):
-        assert len(c.shape) == 2, "Expected a 2D tensor for conditioning, got {} dim tensor".format(len(c.shape))
-        B, N, C_inp = x.shape
+    def forward(self, x, c_,  mask=None):
+        #assert len(c.shape) == 2, "Expected a 2D tensor for conditioning, got {} dim tensor".format(len(c.shape))
+        c = c_[:, 0, :]
+        B, N1, C_inp = x.shape
         B, C_cond = c.shape
 
-        q = self.q_proj(x).reshape(B, N, self.num_heads, -1).permute(0, 2, 1, 3)
+        q = self.q_proj(x).reshape(B, N1, self.num_heads, -1).permute(0, 2, 1, 3)
         k = self.k_proj(c).reshape(B, self.num_heads, -1).unsqueeze(1).permute(0, 2, 1, 3)
         v = self.v_proj(c).reshape(B, self.num_heads, -1).unsqueeze(1).permute(0, 2, 1, 3)
 
         attn = (q @ k.transpose(-2, -1)) * self.attn_scale
+
         # attn shape -> (B, H, N, 1)
 
         attn = attn.softmax(dim=-1)
@@ -258,11 +259,11 @@ class AggregateFeatures(nn.Module):
         super().__init__()
         self.policy_cfg = policy_cfg
         if policy_cfg.agg_feat == "MaxPool":
-            self.layer = nn.MaxPool1d(policy_cfg.horizon)
+            self.layer = nn.MaxPool1d(policy_cfg.seq_len)
         elif policy_cfg.agg_feat == "AvgPool":
-            self.layer = nn.AvgPool1d(kernel_size=policy_cfg.horizon)
+            self.layer = nn.AvgPool1d(kernel_size=policy_cfg.seq_len)
         elif policy_cfg.agg_feat == "Linear":
-            self.layer = nn.Linear(policy_cfg.horizon, 1)
+            self.layer = nn.Linear(policy_cfg.seq_len, 1)
         elif policy_cfg.agg_feat == "LastLayer":
             self.layer = nn.Identity()
         else:
@@ -274,7 +275,9 @@ class AggregateFeatures(nn.Module):
             return x[:, -1]
         else:
             x = x.transpose(1, 2)
-            return self.layer(x).squeeze(-1)
+            out = self.layer(x)
+            out = out.squeeze(-1)
+            return out
 
 
 class MLPHead(nn.Module):

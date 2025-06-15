@@ -9,10 +9,6 @@ transformer_mlp_hidden_size: 256
 transformer_dropout: 0.1
 transformer_max_seq_len: 10
 
-agg_feat: "AvgPool"
-horizon: 3
-latent_token: "init_random"
-
 defaults:
     - data_augmentation@color_aug: batch_wise_img_color_jitter_group_aug.yaml
     - data_augmentation@translation_aug: translation_aug.yaml
@@ -21,3 +17,7 @@ defaults:
     - position_encoding@temporal_position_encoding: sinusoidal_position_encoding.yaml
     - policy_head: mlp_head.yaml
     - proprio_encoder: mlp_encoder.yaml
+
+agg_feat: "AvgPool"
+seq_len: 10  # please update in libero config too
+latent_token: "init_random"

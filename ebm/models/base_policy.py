@@ -36,14 +36,14 @@ class BasePolicy(nn.Module):
     def _get_img_tuple_(self, data):
         # image encoder to be defined in that particular policy class
         img_tuple = tuple(
-            [data['obs'][img_name] for img_name in self.image_encoders.keys()]
+            [data['obs']['agentview_rgb'], data['obs']['eye_in_hand_rgb']]
         )
         return img_tuple
 
     def _get_aug_output_dict_(self, out):
         img_dict = {
             img_name: out[idx]
-            for idx, img_name in enumerate(self.image_encoders.keys())
+            for idx, img_name in enumerate(['agentview_rgb', 'eye_in_hand_rgb'])
         }
         return img_dict
 
@@ -53,7 +53,7 @@ class BasePolicy(nn.Module):
                 img_tuple = self._get_img_tuple_(data)
                 aug_out = self._get_aug_output_dict_(self.img_aug(img_tuple))
                 # replacing images with augmented images
-                for img_name in self.image_encoders.keys():
+                for img_name in ['agentview_rgb', 'eye_in_hand_rgb']:
                     data["obs"][img_name] = aug_out[img_name]
             return data
         else:

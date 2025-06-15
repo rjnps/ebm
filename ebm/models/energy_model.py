@@ -137,7 +137,7 @@ class EnergyModel(BasePolicy):
             encoded_inp.append(encoded_gripper_image)
 
         # encode text
-        encoded_text = self.text_encoder(data["task_emb"]) # [B, dim]
+        encoded_text = self.text_encoder(data["task_emb"].to("cuda")) # [B, dim]
         encoded_text = encoded_text.view(B, 1, 1, -1).expand(-1, H, -1, -1) # [B, H, 1, dim]
 
         # adding latent tokens to the encoded input
@@ -209,6 +209,7 @@ class EnergyModel(BasePolicy):
                           inp_proprio,
                           encoded_static_image_pre,
                           encoded_gripper_image_pre,
+                          latent_token,
                           step_sizes,  # [proprio, static_img, gripper_img, latent]
                           noise_scales,
                           clip_grad_norm=None  # 1.0
@@ -226,7 +227,7 @@ class EnergyModel(BasePolicy):
         curr_img_static = encoded_static_image_pre[:, -1].clone().detach().requires_grad_(True)
         if self.cfg.encode_gripper_cam:
             curr_img_gripper = encoded_gripper_image_pre[:, -1].clone().detach().requires_grad_(True)
-        latent_token = self.latent_token.clone().detach().requires_grad_(True)
+        latent_token = latent_token.clone().detach().requires_grad_(True)
 
         for _ in range(num_steps):
             # reconstruct input data
@@ -295,14 +296,15 @@ class EnergyModel(BasePolicy):
                              inp_proprio,
                              encoded_static_image_pre,
                              encoded_gripper_image_pre,
+                             latent_token,
                              step_size,  # [proprio, static_img, gripper_img, latent]
                              noise_scale,
                              clip_grad_norm=None  # 1.0
                              ):
 
         # current observations
-        latent_token = self.latent_token.clone().detach().requires_grad_(True)
-
+        latent_token = latent_token.clone().detach().requires_grad_(True)
+        print_ = True
         for _ in range(num_steps):
             # compute energy
             x, c = self.encode_inp_cond(data,
@@ -311,6 +313,12 @@ class EnergyModel(BasePolicy):
                                         encoded_static_image_pre,
                                         encoded_gripper_image_pre)
             energy = self.core_transformer_decoder(x, c)  # scalar energy
+
+            if print_:
+                print(energy)
+                print_ = False
+
+            energy = energy.sum()  # Making it scalar
 
             # compute gradients
             grad_inp_latent = torch.autograd.grad( energy, latent_token)
@@ -343,12 +351,15 @@ class EnergyModel(BasePolicy):
 
         # Todo: Experiment with masks, with and without history
         x = self.core_transformer(x, c, None)
-
+        print("x :", x.shape)
         # Reshaping to input shape
         x = x.reshape(*shape_inp)
+        print("reshaped x : ", x.shape)
         # last modality is for latent vector -> parameter for dmp
         latent_out = x[:, :, -1]
+        print("selecting latent : ", latent_out.shape)
         agg_latent = self.agg_feats(latent_out)
+        print("aggregated feats : ", agg_latent.shape)
         out = self.energy_head(agg_latent)
 
         return out
@@ -361,20 +372,45 @@ class EnergyModel(BasePolicy):
             inp_proprio, encoded_static_image_pre = self.get_inputs_to_model(data)
             encoded_gripper_image_pre = None
 
-        if self.cfg.policy_cfg.latent_token == "init_random":
-            latent_token = torch.randn(self.batch_size, self.embed_size_inp, device=self.energy_head.device, requires_grad=True)
+        print(inp_proprio.device)
+        print(encoded_static_image_pre.device)
+        print(encoded_gripper_image_pre.device)
+
+        if self.cfg.policy.latent_token == "init_random":
+            latent_token = torch.randn(self.batch_size,
+                                       self.embed_size_inp,
+                                       device="cuda",
+                                       requires_grad=True)
         else:
             # from observations
-            latent_token = self.get_latent_from_observation(self.cfg.policy_cfg.latent_token)
+            latent_token = self.get_latent_from_observation(self.cfg.policy.latent_token)
 
-        latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.,
-                                                 data,
-                                                 inp_proprio,
-                                                 encoded_static_image_pre,
-                                                 encoded_gripper_image_pre,
-                                                 step_size,  # [proprio, static_img, gripper_img, latent]
-                                                 noise_scale,
-                                                 clip_grad_norm=None  # 1.0)
+        if self.cfg.encode_gripper_cam:
+            step_size_all = [self.cfg.sampling.step_size_proprio,
+                             self.cfg.sampling.step_size_static_img,
+                             self.cfg.sampling.step_size_gripper_img,
+                             self.cfg.sampling.step_size_latent]
+            noise_scale_all = [self.cfg.sampling.noise_scale_proprio,
+                               self.cfg.sampling.noise_scale_static_img,
+                               self.cfg.sampling.noise_scale_gripper_img,
+                               self.cfg.sampling.noise_scale_latent]
+        else:
+            step_size_all = [self.cfg.sampling.step_size_proprio,
+                             self.cfg.sampling.step_size_static_img,
+                             self.cfg.sampling.step_size_latent]
+            noise_scale_all = [self.cfg.sampling.noise_scale_proprio,
+                               self.cfg.sampling.noise_scale_static_img,
+                               self.cfg.sampling.noise_scale_latent]
+
+        latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.sampling.num_steps,
+                                                 data=data,
+                                                 inp_proprio=inp_proprio,
+                                                 encoded_static_image_pre=encoded_static_image_pre,
+                                                 encoded_gripper_image_pre=encoded_gripper_image_pre,
+                                                 latent_token=latent_token,
+                                                 step_size=self.cfg.sampling.step_size_latent,
+                                                 noise_scale=self.cfg.sampling.noise_scale_latent,
+                                                 clip_grad_norm=self.cfg.sampling.clip_grad_norm)
 
         x, c = self.encode_inp_cond(data,
                                     latent_token,

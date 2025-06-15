@@ -45,7 +45,7 @@ class TrainEBM:
             embed_size_cond=self.cfg.policy.embed_size,
             load_encoded_data=True
             )
-
+        self.energy_model.to(self.cfg.device)
         self.best_state_dict = self.energy_model.state_dict()
 
     def train(self):
@@ -61,7 +61,9 @@ class TrainEBM:
 
             for epoch in trange(0, self.cfg.train.n_epochs + 1):
                 for (idx, data) in enumerate(train_dataloader):
-                    print(idx)
+                    energy = self.energy_model(data)
+                    print("Energy : ", energy)
+                    exit()
 
 
 if __name__ == '__main__':
