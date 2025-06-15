@@ -5,6 +5,7 @@ defaults:
   - train: default
   - eval: default
   - sampling: langevin_dyn
+  - motion_primitives: dmp
 
 # for LIBERO
 task_embedding_format: "bert"

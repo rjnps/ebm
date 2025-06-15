@@ -5,9 +5,9 @@ step_size_static_img: 1e-2
 step_size_gripper_img: 1e-2
 step_size_latent: 1e-2
 
-noise_scale_proprio: 1e-2
-noise_scale_static_img: 1e-2
-noise_scale_gripper_img: 1e-2
-noise_scale_latent: 1e-2
+noise_scale_proprio: 1e-3
+noise_scale_static_img: 1e-3
+noise_scale_gripper_img: 1e-3
+noise_scale_latent: 1e-3
 
 clip_grad_norm: 1.0
