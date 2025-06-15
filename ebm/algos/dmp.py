@@ -3,10 +3,9 @@ import torch.nn as nn
 import numpy as np
 
 
-class DMP(nn.Module):
+class DMP:
     def __init__(self, args):
-        super().__init__()
-        self.args = args
+        self.cfg = args
         self.c = self._init_centers()  # Centers of basis functions
         self.sigma_sq = self._init_sigmas()
         self.trajectory_length = int(self.cfg.tau/self.cfg.dt)
@@ -15,7 +14,7 @@ class DMP(nn.Module):
         return torch.exp(-self.cfg.alpha_y *
                          torch.linspace(0, 1, self.cfg.num_basis_fns))
 
-    def _init_sigma(self):
+    def _init_sigmas(self):
         """"
         calculated for gaussian basis functions
         """
@@ -50,7 +49,6 @@ class DMP(nn.Module):
         return f
 
     def integrate(self, g, weights, y_0, y_dot_0):
-
         positions = [y_0]
         velocities = [y_dot_0]
         accelerations = [torch.tensor(0.0, device=y_0.device, dtype=torch.float)]

@@ -10,6 +10,7 @@ import robomimic.utils.tensor_utils as TensorUtils
 from ebm.models.encoder_image import R3MEncoder, FineTuneEncoderImage
 from ebm.models.encoder_language import FineTuneEncoderLanguage
 from ebm.models.encoder_proprio import EncoderProprio
+from ebm.models.dmp_head import DMPHead
 
 
 class EnergyModel(BasePolicy):
@@ -76,6 +77,11 @@ class EnergyModel(BasePolicy):
                                               out_dim=embed_size_inp,
                                               dropout=policy_cfg.proprio_encoder.dropout
                                               )
+
+        dmp_out_size = self.cfg.motion_primitives.num_basis_fns + self.proprio_encoder.get_proprio_size()
+        self.dmp_head = DMPHead(input_size=embed_size_inp,
+                                output_size=dmp_out_size,
+                                dropout=policy_cfg.policy_head.dropout)
 
         self.agg_feats = AggregateFeatures(policy_cfg)
 
@@ -245,7 +251,7 @@ class EnergyModel(BasePolicy):
 
             # compute energy
             x, c = self.encode_inp_cond(data, latent_token, full_inp_proprio, full_img_static, full_img_gripper)
-            energy = self.core_transformer_decoder(x, c)  # scalar energy
+            energy, _ = self.core_transformer_decoder(x, c)  # scalar energy
 
             # compute gradients
             if self.cfg.encode_gripper_cam:
@@ -312,7 +318,7 @@ class EnergyModel(BasePolicy):
                                         inp_proprio,
                                         encoded_static_image_pre,
                                         encoded_gripper_image_pre)
-            energy = self.core_transformer_decoder(x, c)  # scalar energy
+            energy, _ = self.core_transformer_decoder(x, c)  # scalar energy
 
             if print_:
                 print(energy)
@@ -351,18 +357,14 @@ class EnergyModel(BasePolicy):
 
         # Todo: Experiment with masks, with and without history
         x = self.core_transformer(x, c, None)
-        print("x :", x.shape)
         # Reshaping to input shape
         x = x.reshape(*shape_inp)
-        print("reshaped x : ", x.shape)
         # last modality is for latent vector -> parameter for dmp
         latent_out = x[:, :, -1]
-        print("selecting latent : ", latent_out.shape)
         agg_latent = self.agg_feats(latent_out)
-        print("aggregated feats : ", agg_latent.shape)
         out = self.energy_head(agg_latent)
 
-        return out
+        return out, agg_latent
 
     def forward(self, data):
         data = self.preprocess_input(data, train_mode=True)
@@ -418,8 +420,12 @@ class EnergyModel(BasePolicy):
                                     encoded_static_image_pre,
                                     encoded_gripper_image_pre)
 
-        energy = self.core_transformer_decoder(x, c)
-        return energy
+        energy, latent_star = self.core_transformer_decoder(x, c)
+
+        # dmp head
+        dmp_params = self.dmp_head(latent_star)
+
+        return energy, dmp_params
 
     def get_energy(self, data):
         # Todo: Implement a latent queue for history

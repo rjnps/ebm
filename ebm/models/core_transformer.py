@@ -285,10 +285,10 @@ class MLPHead(nn.Module):
         super().__init__()
         drop_out = nn.Dropout(dropout) if self.training or dropout > 0.0 else nn.Identity()
         self.mlp_head = nn.Sequential(
-            nn.Linear(input_size, 256),
+            nn.Linear(input_size, 128),
             drop_out,
             nn.GELU(),
-            nn.Linear(256, 64),
+            nn.Linear(128, 64),
             nn.GELU(),
             nn.Linear(64, 1),
         )

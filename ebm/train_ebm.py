@@ -61,7 +61,7 @@ class TrainEBM:
 
             for epoch in trange(0, self.cfg.train.n_epochs + 1):
                 for (idx, data) in enumerate(train_dataloader):
-                    energy = self.energy_model(data)
+                    energy, dmp_params = self.energy_model(data)
                     print("Energy : ", energy)
                     exit()
 

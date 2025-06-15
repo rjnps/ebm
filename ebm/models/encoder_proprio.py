@@ -40,6 +40,16 @@ class EncoderProprio(nn.Module):
         else:
             raise NotImplementedError
 
+    def get_proprio_size(self):
+        size_ = 0
+        if self.use_joint:
+            size_ += 7
+        if self.use_gripper:
+            size_ += 2
+        if self.use_ee:
+            size_ += 3
+        return size_
+
     def get_input_data(self, data):
         torch_list = []
         if self.use_joint:
