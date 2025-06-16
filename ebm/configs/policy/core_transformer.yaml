@@ -19,5 +19,5 @@ defaults:
     - proprio_encoder: mlp_encoder.yaml
 
 agg_feat: "AvgPool"
-seq_len: 10  # please update in libero config too
+horizon: 10  # please update in libero config too
 latent_token: "init_random"

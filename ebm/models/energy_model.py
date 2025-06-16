@@ -310,7 +310,6 @@ class EnergyModel(BasePolicy):
 
         # current observations
         latent_token = latent_token.clone().detach().requires_grad_(True)
-        print_ = True
         for _ in range(num_steps):
             # compute energy
             x, c = self.encode_inp_cond(data,
@@ -319,11 +318,6 @@ class EnergyModel(BasePolicy):
                                         encoded_static_image_pre,
                                         encoded_gripper_image_pre)
             energy, _ = self.core_transformer_decoder(x, c)  # scalar energy
-
-            if print_:
-                print(energy)
-                print_ = False
-
             energy = energy.sum()  # Making it scalar
 
             # compute gradients

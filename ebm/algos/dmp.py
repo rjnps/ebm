@@ -6,8 +6,8 @@ import numpy as np
 class DMP:
     def __init__(self, args):
         self.cfg = args
-        self.c = self._init_centers()  # Centers of basis functions
-        self.sigma_sq = self._init_sigmas()
+        self.c = self._init_centers().to("cuda")  # Centers of basis functions
+        self.sigma_sq = self._init_sigmas().to("cuda")
         self.trajectory_length = int(self.cfg.tau/self.cfg.dt)
 
     def _init_centers(self):
@@ -45,7 +45,7 @@ class DMP:
             # return zero forcing function, to avoid division by zero
             return torch.zeros_like(x)
 
-        f = torch.dot(psi, weights) * x * (g - y0) / sum_psi
+        f = torch.mv(weights, psi) * x * (g - y0) / sum_psi
         return f
 
     def integrate(self, g, weights, y_0, y_dot_0):

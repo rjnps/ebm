@@ -1,3 +1,4 @@
+import copy
 import os
 import hydra
 from omegaconf import OmegaConf
@@ -11,6 +12,8 @@ from libero.lifelong.datasets import (GroupedTaskDataset, SequenceVLDataset, get
 from libero.lifelong.utils import (get_task_embs, safe_device, create_experiment_dir)
 from torch.utils.data import DataLoader, RandomSampler
 import torchvision.transforms as T
+from torchvision.utils import save_image
+from ebm.utils.random_utils import update_data_horizon
 
 
 pp = pprint.PrettyPrinter(indent=2)
@@ -81,6 +84,11 @@ class LiberoDataset():
 
         return batch_size
 
+    def set_data_horizon(self, data, horizon):
+        data_new = copy.deepcopy(data)
+        data_new = update_data_horizon(data_new, horizon)
+        return data_new
+
     def experiments(self):
         for i in trange(self.n_tasks):
             train_dataloader = DataLoader(
@@ -93,7 +101,12 @@ class LiberoDataset():
 
             for (idx, data) in enumerate(train_dataloader):
 
-                pp.pprint(data['obs']['joint_states'][0, :, :])
+                # images = data['obs']['agentview_rgb']
+                # for batch in range(images.shape[0]):
+                #     for seq in range(images.shape[1]):
+                #         save_image(images[batch][seq], 'output_{}.png'.format(seq))
+                #     exit()
+                print(idx)
                 # B, To, C, H, W = data["obs"]["agentview_rgb"].shape
                 # img = data["obs"]["agentview_rgb"].view(B*To, C, H, W)
                 # img = T.Resize(224)(img)

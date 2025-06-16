@@ -259,11 +259,11 @@ class AggregateFeatures(nn.Module):
         super().__init__()
         self.policy_cfg = policy_cfg
         if policy_cfg.agg_feat == "MaxPool":
-            self.layer = nn.MaxPool1d(policy_cfg.seq_len)
+            self.layer = nn.MaxPool1d(policy_cfg.horizon)
         elif policy_cfg.agg_feat == "AvgPool":
-            self.layer = nn.AvgPool1d(kernel_size=policy_cfg.seq_len)
+            self.layer = nn.AvgPool1d(kernel_size=policy_cfg.horizon)
         elif policy_cfg.agg_feat == "Linear":
-            self.layer = nn.Linear(policy_cfg.seq_len, 1)
+            self.layer = nn.Linear(policy_cfg.horizon, 1)
         elif policy_cfg.agg_feat == "LastLayer":
             self.layer = nn.Identity()
         else:

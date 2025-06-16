@@ -8,6 +8,8 @@ from ebm.utils.data_loader import LiberoDataset
 from ebm.algos.lange_dyn import langevin_dynamics
 from ebm.models.energy_model import EnergyModel
 
+from ebm.algos.dmp import DMP
+
 from tqdm import trange
 import time
 from torch.utils.data import DataLoader, RandomSampler
@@ -48,6 +50,8 @@ class TrainEBM:
         self.energy_model.to(self.cfg.device)
         self.best_state_dict = self.energy_model.state_dict()
 
+        self.dmp = DMP(self.cfg.motion_primitives)
+
     def train(self):
         t0 = time.time()
         for i in trange(self.data_sets.n_tasks):
@@ -60,10 +64,23 @@ class TrainEBM:
             )
 
             for epoch in trange(0, self.cfg.train.n_epochs + 1):
-                for (idx, data) in enumerate(train_dataloader):
+                for (idx, data_) in enumerate(train_dataloader):
+                    if self.cfg.policy.horizon != self.cfg.data.seq_len:
+                        assert self.cfg.policy.horizon < self.cfg.data.seq_len, \
+                            "horizon must be smaller than sequence length"
+                        data = self.data_sets.set_data_horizon(data_, self.cfg.policy.horizon)
+                    else:
+                        data = data_
+
                     energy, dmp_params = self.energy_model(data)
-                    print("Energy : ", energy)
+                    weights = dmp_params[:, :self.cfg.motion_primitives.num_basis_fns]
+                    goal = dmp_params[:, self.cfg.motion_primitives.num_basis_fns:]
+                    y_0 = data['obs']['joint_states'][:,  0, :]
+                    y_dot_0 = torch.zeros_like(y_0, device=y_0.device, requires_grad=True, dtype=y_0.dtype)
+                    traj_pos, traj_vel, traj_accln = self.dmp.integrate(goal, weights, y_0, y_dot_0)
+                    print(traj_pos)
                     exit()
+
 
 
 if __name__ == '__main__':
