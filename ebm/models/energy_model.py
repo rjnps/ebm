@@ -71,14 +71,16 @@ class EnergyModel(BasePolicy):
         )
 
         self.proprio_encoder = EncoderProprio(policy_cfg.proprio_encoder.proprio_encoder_type,
-                                              use_joint=True,
-                                              use_gripper=True,
-                                              use_ee=False,
+                                              use_joint=policy_cfg.use_joint,
+                                              use_gripper=policy_cfg.use_gripper,
+                                              use_ee=policy_cfg.use_ee,
                                               out_dim=embed_size_inp,
                                               dropout=policy_cfg.proprio_encoder.dropout
                                               )
 
-        dmp_out_size = self.cfg.motion_primitives.num_basis_fns + self.proprio_encoder.get_proprio_size()
+        dmp_out_size = self.cfg.motion_primitives.num_basis_fns * self.proprio_encoder.get_proprio_size() + \
+                       self.proprio_encoder.get_proprio_size()
+
         self.dmp_head = DMPHead(input_size=embed_size_inp,
                                 output_size=dmp_out_size,
                                 dropout=policy_cfg.policy_head.dropout)
@@ -418,8 +420,10 @@ class EnergyModel(BasePolicy):
 
         # dmp head
         dmp_params = self.dmp_head(latent_star)
+        weights = dmp_params[:, : self.cfg.motion_primitives.num_basis_fns * self.proprio_encoder.get_proprio_size()]
+        goal = dmp_params[:, self.cfg.motion_primitives.num_basis_fns * self.proprio_encoder.get_proprio_size():]
 
-        return energy, dmp_params
+        return energy, weights, goal
 
     def get_energy(self, data):
         # Todo: Implement a latent queue for history

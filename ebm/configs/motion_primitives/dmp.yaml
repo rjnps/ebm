@@ -1,5 +1,5 @@
 num_basis_fns: 25
-dt: 0.1
+dt: 0.02
 tau: 1.0
 alpha: 25
 beta: 6.25

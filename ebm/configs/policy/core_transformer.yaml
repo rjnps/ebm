@@ -21,3 +21,7 @@ defaults:
 agg_feat: "AvgPool"
 horizon: 10  # please update in libero config too
 latent_token: "init_random"
+
+use_joint: True
+use_gripper: True
+use_ee: False

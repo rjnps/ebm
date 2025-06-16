@@ -72,14 +72,26 @@ class TrainEBM:
                     else:
                         data = data_
 
-                    energy, dmp_params = self.energy_model(data)
-                    weights = dmp_params[:, :self.cfg.motion_primitives.num_basis_fns]
-                    goal = dmp_params[:, self.cfg.motion_primitives.num_basis_fns:]
-                    y_0 = data['obs']['joint_states'][:,  0, :]
+                    energy, weights, goal = self.energy_model(data)
+
+                    start_state = []
+                    if self.cfg.policy.use_joint:
+                        start_state.append(data['obs']['joint_states'][:,  0, :])
+                    if self.cfg.policy.use_gripper:
+                        start_state.append(data['obs']['gripper_states'][:, 0, :])
+                    if self.cfg.policy.use_ee:
+                        start_state.append(data['obs']['ee_states'][:, 0, :])
+
+                    y_0 = torch.cat(start_state, dim=-1).to(weights.device)
                     y_dot_0 = torch.zeros_like(y_0, device=y_0.device, requires_grad=True, dtype=y_0.dtype)
+                    weights = weights.view(y_0.shape[0], self.cfg.motion_primitives.num_basis_fns, y_0.shape[-1])
                     traj_pos, traj_vel, traj_accln = self.dmp.integrate(goal, weights, y_0, y_dot_0)
-                    print(traj_pos)
-                    exit()
+
+                    # loss
+                    # recon loss with all the traj steps
+                    # global contrastive loss
+                    # local contrastive loss
+                    # -ve sampling
 
 
 
