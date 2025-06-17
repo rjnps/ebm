@@ -1,4 +1,5 @@
 num_steps: 20
+num_steps_neg: 20
 
 step_size_proprio: 1e-2
 step_size_static_img: 1e-2

@@ -101,7 +101,7 @@ class LiberoDataset():
 
             for (idx, data) in enumerate(train_dataloader):
 
-                # images = data['obs']['agentview_rgb']
+                # images = data['obs']['eye_in_hand_rgb']
                 # for batch in range(images.shape[0]):
                 #     for seq in range(images.shape[1]):
                 #         save_image(images[batch][seq], 'output_{}.png'.format(seq))

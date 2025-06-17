@@ -72,7 +72,7 @@ class TrainEBM:
                     else:
                         data = data_
 
-                    energy, weights, goal = self.energy_model(data)
+                    energy, weights, goal, energy_neg_loc = self.energy_model(data)
 
                     start_state = []
                     if self.cfg.policy.use_joint:
@@ -92,6 +92,7 @@ class TrainEBM:
                     # global contrastive loss
                     # local contrastive loss
                     # -ve sampling
+
 
 
 

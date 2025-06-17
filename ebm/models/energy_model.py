@@ -122,7 +122,8 @@ class EnergyModel(BasePolicy):
                         latent_token,
                         inp_proprio,  # [B, H, dims]
                         encoded_static_image_pre,  # [B*H, 2048]
-                        encoded_gripper_image_pre):  # [B*H, 2048]
+                        encoded_gripper_image_pre,
+                        encode_task=True):  # [B*H, 2048]
         encoded_inp = []
 
         # encode proprioceptive observation
@@ -145,8 +146,11 @@ class EnergyModel(BasePolicy):
             encoded_inp.append(encoded_gripper_image)
 
         # encode text
-        encoded_text = self.text_encoder(data["task_emb"].to("cuda")) # [B, dim]
-        encoded_text = encoded_text.view(B, 1, 1, -1).expand(-1, H, -1, -1) # [B, H, 1, dim]
+        if encode_task:
+            encoded_text = self.text_encoder(data["task_emb"].to("cuda")) # [B, dim]
+            encoded_text = encoded_text.view(B, 1, 1, -1).expand(-1, H, -1, -1) # [B, H, 1, dim]
+        else:
+            encoded_text = None
 
         # adding latent tokens to the encoded input
         expanded_latent_token = latent_token.view(B, 1, 1, self.embed_size_inp).expand(B, H, 1, self.embed_size_inp)
@@ -156,60 +160,6 @@ class EnergyModel(BasePolicy):
         encoded_inp = torch.cat(encoded_inp, dim=-2)
 
         return encoded_inp, encoded_text
-
-    def mcmc_sampling_full_data(self,
-                                num_steps,
-                                data,
-                                inp_proprio,
-                                encoded_static_image_pre,
-                                encoded_gripper_image_pre
-                                ):
-
-        #todo: write better code
-        # split the data into current and past
-        past_img_static = data['obs']['agentview_rgb'][:, :-1]
-        past_img_gripper = data['obs']['eye_in_hand_rgb'][:, :-1]
-        past_joint_states = data['obs']['joint_states'][:, :-1]
-        if self.cfg.encode_gripper_cam:
-            past_gripper_states = data['obs']['gripper_states'][:, :-1]
-
-        curr_img_static = data['obs']['agentview_rgb'][:, -1].clone().detach().requires_grad_(True)
-        curr_img_gripper = data['obs']['eye_in_hand_rgb'][:, -1].clone().detach().requires_grad_(True)
-        curr_joint_states = data['obs']['joint_states'][:, -1].clone().detach().requires_grad_(True)
-        if self.cfg.encode_gripper_cam:
-            curr_gripper_states = data['obs']['gripper_states'][:, -1].clone().detach().requires_grad_(True)
-
-        for _ in range(num_steps):
-            # Reconstruct the sequence
-            full_img_static = torch.cat([past_img_static, curr_img_static], dim=1)
-            full_img_gripper = torch.cat([past_img_gripper, curr_img_gripper], dim=1)
-            full_joint_states = torch.cat([past_joint_states, curr_joint_states], dim=1)
-            if self.cfg.encode_gripper_cam:
-                full_gripper_states = torch.cat([past_gripper_states, curr_gripper_states], dim=1)
-
-            # reconstruct data dictionary
-            data_new = {}
-            for key, data in data.items():
-                if key == "obs":
-                    for key_ in data['obs'].keys():
-                        if key_ == "agentview_rgb":
-                            data_new[key][key_] = full_img_static
-                        elif key_ == "eye_in_hand_rgb":
-                            data_new[key][key_] = full_img_gripper
-                        elif key_ == "gripper_states":
-                            if self.cfg.encode_gripper_cam:
-                                data_new[key][key_] = full_gripper_states
-                            else:
-                                data_new[key][key_] = data[key][key_]
-                        elif key_ == "joint_states":
-                            data_new[key][key_] = full_joint_states
-                        else:
-                            pass
-                else:
-                    data_new[key] = data
-
-            # todo: complete this function
-            raise NotImplementedError
 
     def mcmc_sampling_all(self,
                           num_steps,
@@ -337,6 +287,35 @@ class EnergyModel(BasePolicy):
 
             return latent_token
 
+    def local_negative_sampling(self,
+                                data,
+                                inp_proprio,
+                                encoded_static_image_pre,
+                                encoded_gripper_image_pre,
+                                latent_token
+                                ):
+        step_sizes = [self.cfg.sampling.step_size_proprio,
+                      self.cfg.sampling.step_size_static_img,
+                      self.cfg.sampling.step_size_gripper_img,
+                      self.cfg.sampling.step_size_latent]
+
+        noise_scales = [self.cfg.sampling.noise_scale_proprio,
+                        self.cfg.sampling.noise_scale_static_img,
+                        self.cfg.sampling.noise_scale_gripper_img,
+                        self.cfg.sampling.noise_scale_latent]
+
+        neg_samples = self.mcmc_sampling_all(num_steps=self.cfg.sampling.num_steps_neg,
+                                             data=data,
+                                             inp_proprio=inp_proprio,
+                                             encoded_static_image_pre=encoded_static_image_pre,
+                                             encoded_gripper_image_pre=encoded_gripper_image_pre,
+                                             latent_token=latent_token,
+                                             step_sizes=step_sizes,
+                                             noise_scales=noise_scales,
+                                             clip_grad_norm=self.cfg.sampling.clip_grad_norm)
+
+        return neg_samples
+
     def core_transformer_decoder(self, x, c):
         # x -> (B, H, num_modality, E)
 
@@ -370,10 +349,6 @@ class EnergyModel(BasePolicy):
             inp_proprio, encoded_static_image_pre = self.get_inputs_to_model(data)
             encoded_gripper_image_pre = None
 
-        print(inp_proprio.device)
-        print(encoded_static_image_pre.device)
-        print(encoded_gripper_image_pre.device)
-
         if self.cfg.policy.latent_token == "init_random":
             latent_token = torch.randn(self.batch_size,
                                        self.embed_size_inp,
@@ -383,23 +358,6 @@ class EnergyModel(BasePolicy):
             # from observations
             latent_token = self.get_latent_from_observation(self.cfg.policy.latent_token)
 
-        if self.cfg.encode_gripper_cam:
-            step_size_all = [self.cfg.sampling.step_size_proprio,
-                             self.cfg.sampling.step_size_static_img,
-                             self.cfg.sampling.step_size_gripper_img,
-                             self.cfg.sampling.step_size_latent]
-            noise_scale_all = [self.cfg.sampling.noise_scale_proprio,
-                               self.cfg.sampling.noise_scale_static_img,
-                               self.cfg.sampling.noise_scale_gripper_img,
-                               self.cfg.sampling.noise_scale_latent]
-        else:
-            step_size_all = [self.cfg.sampling.step_size_proprio,
-                             self.cfg.sampling.step_size_static_img,
-                             self.cfg.sampling.step_size_latent]
-            noise_scale_all = [self.cfg.sampling.noise_scale_proprio,
-                               self.cfg.sampling.noise_scale_static_img,
-                               self.cfg.sampling.noise_scale_latent]
-
         latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.sampling.num_steps,
                                                  data=data,
                                                  inp_proprio=inp_proprio,
@@ -407,7 +365,7 @@ class EnergyModel(BasePolicy):
                                                  encoded_gripper_image_pre=encoded_gripper_image_pre,
                                                  latent_token=latent_token,
                                                  step_size=self.cfg.sampling.step_size_latent,
-                                                 noise_scale=self.cfg.sampling.noise_scale_latent,
+                                                 noise_scale=0,  # self.cfg.sampling.noise_scale_latent,
                                                  clip_grad_norm=self.cfg.sampling.clip_grad_norm)
 
         x, c = self.encode_inp_cond(data,
@@ -416,14 +374,104 @@ class EnergyModel(BasePolicy):
                                     encoded_static_image_pre,
                                     encoded_gripper_image_pre)
 
-        energy, latent_star = self.core_transformer_decoder(x, c)
+        energy, latent_agg = self.core_transformer_decoder(x, c)
 
         # dmp head
-        dmp_params = self.dmp_head(latent_star)
+        dmp_params = self.dmp_head(latent_agg)
         weights = dmp_params[:, : self.cfg.motion_primitives.num_basis_fns * self.proprio_encoder.get_proprio_size()]
         goal = dmp_params[:, self.cfg.motion_primitives.num_basis_fns * self.proprio_encoder.get_proprio_size():]
 
-        return energy, weights, goal
+        # -ve sampling
+        neg_samples = self.local_negative_sampling(data,
+                                                   inp_proprio,
+                                                   encoded_static_image_pre,
+                                                   encoded_gripper_image_pre,
+                                                   latent_token)
+        if self.cfg.encode_gripper_cam:
+            curr_inp_proprio, curr_img_static, curr_img_gripper, latent_token = neg_samples
+        else:
+            curr_inp_proprio, curr_img_static, latent_token = neg_samples
+
+        # compute local -ve energy, for local CD loss
+        x, c = self.encode_inp_cond(data,
+                                    latent_token,
+                                    inp_proprio,
+                                    encoded_static_image_pre,
+                                    encoded_gripper_image_pre)
+
+        energy_neg, latent_agg_neg = self.core_transformer_decoder(x, c)
+
+        return energy, weights, goal, energy_neg
+
+    def get_global_neg_energy_loss(self,
+                                   data_curr,
+                                   data_other,
+                                   latent_token_curr,):
+        # Data for the current task
+        curr_data = self.preprocess_input(data_curr, train_mode=True)
+        if self.cfg.encode_gripper_cam:
+            curr_inp_proprio, curr_encoded_static_image_pre, curr_encoded_gripper_image_pre = self.get_inputs_to_model(curr_data)
+        else:
+            curr_inp_proprio, curr_encoded_static_image_pre = self.get_inputs_to_model(curr_data)
+            curr_encoded_gripper_image_pre = None
+
+        # Data for some other task
+        diff_data = self.preprocess_input(data_other, train_mode=True)
+        if self.cfg.encode_gripper_cam:
+            diff_inp_proprio, diff_encoded_static_image_pre, diff_encoded_gripper_image_pre = self.get_inputs_to_model(curr_data)
+        else:
+            diff_inp_proprio, diff_encoded_static_image_pre = self.get_inputs_to_model(curr_data)
+            diff_encoded_gripper_image_pre = None
+
+
+        if self.cfg.policy.latent_token == "init_random":
+            diff_latent_token = torch.randn(self.batch_size,
+                                            self.embed_size_inp,
+                                            device="cuda",
+                                            requires_grad=True)
+        else:
+            # from observations
+            diff_latent_token = self.get_latent_from_observation(self.cfg.policy.latent_token)
+
+
+        step_size_all = [self.cfg.sampling.step_size_proprio,
+                         self.cfg.sampling.step_size_static_img,
+                         self.cfg.sampling.step_size_gripper_img,
+                         self.cfg.sampling.step_size_latent]
+
+        noise_scale_all = [self.cfg.sampling.noise_scale_proprio,
+                           self.cfg.sampling.noise_scale_static_img,
+                           self.cfg.sampling.noise_scale_gripper_img,
+                           self.cfg.sampling.noise_scale_latent]
+
+        diff_latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.sampling.num_steps,
+                                                      data=diff_data,
+                                                      inp_proprio=diff_inp_proprio,
+                                                      encoded_static_image_pre=diff_encoded_static_image_pre,
+                                                      encoded_gripper_image_pre=diff_encoded_gripper_image_pre,
+                                                      latent_token=diff_latent_token,
+                                                      step_size=self.cfg.sampling.step_size_latent,
+                                                      noise_scale=0,  # self.cfg.sampling.noise_scale_latent,
+                                                      clip_grad_norm=self.cfg.sampling.clip_grad_norm)
+
+        # compute encoded inputs
+        curr_x, curr_c = self.encode_inp_cond(curr_data,
+                                              latent_token_curr,
+                                              curr_inp_proprio,
+                                              curr_encoded_static_image_pre,
+                                              curr_encoded_gripper_image_pre)
+
+        diff_x, diff_c = self.encode_inp_cond(diff_data,
+                                              diff_latent_token,
+                                              diff_inp_proprio,
+                                              diff_encoded_static_image_pre,
+                                              diff_encoded_gripper_image_pre)
+
+        # compute cross energies
+        energy_cross_sample, latent_agg_neg_cs = self.core_transformer_decoder(diff_x, curr_c)
+        energy_cross_task, latent_agg_neg_ct = self.core_transformer_decoder(curr_x, diff_c)
+
+        return energy_cross_sample, energy_cross_task
 
     def get_energy(self, data):
         # Todo: Implement a latent queue for history
