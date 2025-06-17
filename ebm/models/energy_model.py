@@ -172,6 +172,7 @@ class EnergyModel(BasePolicy):
                           noise_scales,
                           clip_grad_norm=None  # 1.0
                           ):
+
         # past observations
         B, H = inp_proprio.shape[:2]
         past_inp_proprio = inp_proprio[:, :-1]
@@ -181,18 +182,25 @@ class EnergyModel(BasePolicy):
         past_img_gripper = encoded_gripper_image_pre[:, :-1]
 
         # current observations
-        curr_inp_proprio = inp_proprio[:, -1].clone().detach().requires_grad_(True)
-        curr_img_static = encoded_static_image_pre[:, -1].clone().detach().requires_grad_(True)
+        curr_inp_proprio = inp_proprio[:, -1].clone().detach().requires_grad_(True).unsqueeze(1)
+        curr_img_static = encoded_static_image_pre[:, -1].clone().detach().requires_grad_(True).unsqueeze(1)
         if self.cfg.encode_gripper_cam:
-            curr_img_gripper = encoded_gripper_image_pre[:, -1].clone().detach().requires_grad_(True)
+            curr_img_gripper = encoded_gripper_image_pre[:, -1].clone().detach().requires_grad_(True).unsqueeze(1)
         latent_token = latent_token.clone().detach().requires_grad_(True)
 
         for _ in range(num_steps):
-            # reconstruct input data
-            full_inp_proprio = torch.cat([past_inp_proprio, curr_inp_proprio], dim=1)
-            full_img_static = torch.cat([past_img_static, curr_img_static], dim=1)
+            # setting req grads to True as we detach in the last step of this loop
+            curr_inp_proprio.requires_grad_(True)
+            curr_img_static.requires_grad_(True)
             if self.cfg.encode_gripper_cam:
-                full_img_gripper = torch.cat([past_img_gripper, curr_img_gripper], dim=1)
+                curr_img_gripper.requires_grad_(True)
+            latent_token.requires_grad_(True)
+
+            # reconstruct input data
+            full_inp_proprio = torch.cat([past_inp_proprio, curr_inp_proprio], dim=1).to(inp_proprio.device)
+            full_img_static = torch.cat([past_img_static, curr_img_static], dim=1).to(inp_proprio.device)
+            if self.cfg.encode_gripper_cam:
+                full_img_gripper = torch.cat([past_img_gripper, curr_img_gripper], dim=1).to(inp_proprio.device)
             else:
                 full_img_gripper = None
 
@@ -204,6 +212,7 @@ class EnergyModel(BasePolicy):
             # compute energy
             x, c = self.encode_inp_cond(data, latent_token, full_inp_proprio, full_img_static, full_img_gripper)
             energy, _ = self.core_transformer_decoder(x, c)  # scalar energy
+            energy = energy.sum()  # Making it scalar for grads to flow
 
             # compute gradients
             if self.cfg.encode_gripper_cam:
@@ -243,10 +252,21 @@ class EnergyModel(BasePolicy):
                 curr_img_gripper = curr_img_gripper.detach()
             latent_token = latent_token.detach()
 
+        full_inp_proprio = torch.cat([past_inp_proprio, curr_inp_proprio], dim=1).to(inp_proprio.device)
+        full_img_static = torch.cat([past_img_static, curr_img_static], dim=1).to(inp_proprio.device)
         if self.cfg.encode_gripper_cam:
-            return curr_inp_proprio, curr_img_static, curr_img_gripper, latent_token
+            full_img_gripper = torch.cat([past_img_gripper, curr_img_gripper], dim=1).to(inp_proprio.device)
         else:
-            return curr_inp_proprio, curr_img_static, latent_token
+            full_img_gripper = None
+
+        full_img_static = full_img_static.reshape(B * H, -1)
+        if self.cfg.encode_gripper_cam:
+            full_img_gripper = full_img_gripper.reshape(B * H, -1)
+
+        if self.cfg.encode_gripper_cam:
+            return full_inp_proprio, full_img_static, full_img_gripper, latent_token
+        else:
+            return full_inp_proprio, full_img_static, latent_token
 
     def mcmc_sampling_latent(self,
                              num_steps,
@@ -273,7 +293,7 @@ class EnergyModel(BasePolicy):
             energy = energy.sum()  # Making it scalar
 
             # compute gradients
-            grad_inp_latent = torch.autograd.grad( energy, latent_token)
+            grad_inp_latent = torch.autograd.grad(energy, latent_token)
 
             # Gradient Clipping for stability
             if clip_grad_norm is not None:
@@ -388,20 +408,21 @@ class EnergyModel(BasePolicy):
                                                    encoded_gripper_image_pre,
                                                    latent_token)
         if self.cfg.encode_gripper_cam:
-            curr_inp_proprio, curr_img_static, curr_img_gripper, latent_token = neg_samples
+            neg_inp_proprio, neg_img_static, neg_img_gripper, neg_latent_token = neg_samples
         else:
-            curr_inp_proprio, curr_img_static, latent_token = neg_samples
+            neg_inp_proprio, neg_img_static, neg_latent_token = neg_samples
+            neg_img_gripper = None
 
         # compute local -ve energy, for local CD loss
         x, c = self.encode_inp_cond(data,
-                                    latent_token,
-                                    inp_proprio,
-                                    encoded_static_image_pre,
-                                    encoded_gripper_image_pre)
+                                    neg_latent_token,
+                                    neg_inp_proprio,
+                                    neg_img_static,
+                                    neg_img_gripper)
 
         energy_neg, latent_agg_neg = self.core_transformer_decoder(x, c)
 
-        return energy, weights, goal, energy_neg
+        return energy, weights, goal, energy_neg, latent_token
 
     def get_global_neg_energy_loss(self,
                                    data_curr,

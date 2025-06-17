@@ -1,6 +1,7 @@
 import torch
 import os
 import hydra
+import random
 from omegaconf import OmegaConf
 import yaml
 from easydict import EasyDict
@@ -13,6 +14,7 @@ from ebm.algos.dmp import DMP
 from tqdm import trange
 import time
 from torch.utils.data import DataLoader, RandomSampler
+from ebm.utils.random_utils import data_buffer_cpu, data_buffer_gpu, data_numpy_tensor
 
 
 class TrainEBM:
@@ -54,6 +56,7 @@ class TrainEBM:
 
     def train(self):
         t0 = time.time()
+
         for i in trange(self.data_sets.n_tasks):
             train_dataloader = DataLoader(
                 self.data_sets.datasets[i],
@@ -61,7 +64,13 @@ class TrainEBM:
                 num_workers=self.cfg.train.num_workers,
                 sampler=RandomSampler(self.data_sets.datasets[i]),
                 persistent_workers=True,
+                drop_last=True
             )
+
+            while True:
+                k = random.randint(0, len(self.data_sets.datasets) - 1)
+                if k != i:
+                    break
 
             for epoch in trange(0, self.cfg.train.n_epochs + 1):
                 for (idx, data_) in enumerate(train_dataloader):
@@ -72,7 +81,7 @@ class TrainEBM:
                     else:
                         data = data_
 
-                    energy, weights, goal, energy_neg_loc = self.energy_model(data)
+                    energy, weights, goal, energy_neg_loc, latent_pos = self.energy_model(data)
 
                     start_state = []
                     if self.cfg.policy.use_joint:
@@ -86,6 +95,25 @@ class TrainEBM:
                     y_dot_0 = torch.zeros_like(y_0, device=y_0.device, requires_grad=True, dtype=y_0.dtype)
                     weights = weights.view(y_0.shape[0], self.cfg.motion_primitives.num_basis_fns, y_0.shape[-1])
                     traj_pos, traj_vel, traj_accln = self.dmp.integrate(goal, weights, y_0, y_dot_0)
+
+                    # -- Neg sampling --
+                    # get data from a different task
+
+                    idx_k = random.randint(0, len(self.data_sets.datasets[k]) - 1)
+                    diff_data = self.data_sets.datasets[k][idx_k]
+                    diff_data = data_numpy_tensor(diff_data, "cuda")
+                    for key in diff_data['obs'].keys():
+                        print("{} : ".format(key), diff_data['obs'][key].shape)
+                    print("te : ", diff_data['task_embs'].shape)
+                    exit()
+
+                    # get global -ve loss
+                    energy_cross_sample, energy_cross_task = self.energy_model.get_global_neg_energy_loss(data,
+                                                                                                          diff_data,
+                                                                                                          latent_pos)
+
+                    print("energy_cross_sample", energy_cross_sample)
+                    print("energy_cross_task", energy_cross_task)
 
                     # loss
                     # recon loss with all the traj steps

@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, RandomSampler
 import torchvision.transforms as T
 from torchvision.utils import save_image
 from ebm.utils.random_utils import update_data_horizon
+import torch
 
 
 pp = pprint.PrettyPrinter(indent=2)
@@ -75,6 +76,7 @@ class LiberoDataset():
                 num_workers=self.cfg.train.num_workers,
                 sampler=RandomSampler(self.datasets[i]),
                 persistent_workers=True,
+                drop_last=True,
             )
             break
 
@@ -90,6 +92,12 @@ class LiberoDataset():
         return data_new
 
     def experiments(self):
+        first_ = True
+        fv = None
+
+        data = self.datasets[0][0]
+        print(data['obs']['agentview_rgb'][0])
+        exit()
         for i in trange(self.n_tasks):
             train_dataloader = DataLoader(
                 self.datasets[i],
@@ -100,13 +108,22 @@ class LiberoDataset():
             )
 
             for (idx, data) in enumerate(train_dataloader):
+                print(data['task_emb'].shape[0])
+                exit()
+            #     if i == 0:
+            #         fv = data['task_emb'][0]
+            #     if i == 2:
+            #         sv = data['task_emb'][0]
+            #         cs = torch.cosine_similarity(fv, sv, dim=-1)
+            #         print(cs)
+            #         exit()
 
                 # images = data['obs']['eye_in_hand_rgb']
                 # for batch in range(images.shape[0]):
                 #     for seq in range(images.shape[1]):
                 #         save_image(images[batch][seq], 'output_{}.png'.format(seq))
                 #     exit()
-                print(idx)
+                # print(idx)
                 # B, To, C, H, W = data["obs"]["agentview_rgb"].shape
                 # img = data["obs"]["agentview_rgb"].view(B*To, C, H, W)
                 # img = T.Resize(224)(img)
@@ -115,17 +132,17 @@ class LiberoDataset():
                 # print("reshaped: ", img.shape)
 
                 # ['actions', 'obs', 'task_emb']
-                obs_keys = ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']
-                """
-                data_keys : ['actions', 'obs', 'task_emb']
-                obs_keys : ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']
-                actions :  torch.Size([32, 10, 7])
-                agentview_rgb  :  torch.Size([32, 10, 3, 128, 128])
-                eye_in_hand_rgb  :  torch.Size([32, 10, 3, 128, 128])
-                gripper_states  :  torch.Size([32, 10, 2])
-                joint_states  :  torch.Size([32, 10, 7])
-                task_emb :  torch.Size([32, 768])
-                """
+                # obs_keys = ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']
+                # """
+                # data_keys : ['actions', 'obs', 'task_emb']
+                # obs_keys : ['agentview_rgb', 'eye_in_hand_rgb', 'gripper_states', 'joint_states']
+                # actions :  torch.Size([32, 10, 7])
+                # agentview_rgb  :  torch.Size([32, 10, 3, 128, 128])
+                # eye_in_hand_rgb  :  torch.Size([32, 10, 3, 128, 128])
+                # gripper_states  :  torch.Size([32, 10, 2])
+                # joint_states  :  torch.Size([32, 10, 7])
+                # task_emb :  torch.Size([32, 768])
+                # """
 
 if __name__ == "__main__":
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
