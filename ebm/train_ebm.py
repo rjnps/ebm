@@ -15,6 +15,7 @@ from tqdm import trange
 import time
 from torch.utils.data import DataLoader, RandomSampler
 from ebm.utils.random_utils import data_buffer_cpu, data_buffer_gpu, data_numpy_tensor
+from torch.utils.tensorboard import SummaryWriter
 
 
 class TrainEBM:
@@ -54,9 +55,11 @@ class TrainEBM:
 
         self.dmp = DMP(self.cfg.motion_primitives)
 
+        self.writer = SummaryWriter(log_dir="runs/exp1")
+
     def train(self):
         t0 = time.time()
-
+        optimizer = torch.optim.Adam(lr=5e-5, params=self.energy_model.parameters(), weight_decay=1e-4)
         for i in trange(self.data_sets.n_tasks):
             train_dataloader = DataLoader(
                 self.data_sets.datasets[i],
@@ -99,21 +102,48 @@ class TrainEBM:
                     # -- Neg sampling --
                     # get data from a different task
 
-                    idx_k = random.randint(0, len(self.data_sets.datasets[k]) - 1)
-                    diff_data = self.data_sets.datasets[k][idx_k]
-                    diff_data = data_numpy_tensor(diff_data, "cuda")
-                    for key in diff_data['obs'].keys():
-                        print("{} : ".format(key), diff_data['obs'][key].shape)
-                    print("te : ", diff_data['task_embs'].shape)
-                    exit()
+                    # idx_k = random.randint(0, len(self.data_sets.datasets[k]) - 1)
+                    # diff_data = self.data_sets.datasets[k][idx_k]
+                    # diff_data = data_numpy_tensor(diff_data, y_0.shape[0], "cuda")
 
                     # get global -ve loss
-                    energy_cross_sample, energy_cross_task = self.energy_model.get_global_neg_energy_loss(data,
-                                                                                                          diff_data,
-                                                                                                          latent_pos)
+                    # energy_cross_sample, energy_cross_task = self.energy_model.get_global_neg_energy_loss(data,
+                    #                                                                                       diff_data,
+                    #                                                                                       latent_pos)
+                    #
+                    # print("energy_cross_sample", energy_cross_sample)
+                    # print("energy_cross_task", energy_cross_task)
 
-                    print("energy_cross_sample", energy_cross_sample)
-                    print("energy_cross_task", energy_cross_task)
+                    recons_loss = torch.nn.functional.mse_loss(traj_pos[..., :7].reshape(-1, 7),
+                                                               data_['actions'].reshape(-1, 7).to(traj_pos.device))
+
+                    local_energy_loss = torch.mean(energy - energy_neg_loc)
+
+                    energy_reg = 1e-5 * ((energy ** 2).mean() + (energy_neg_loc ** 2).mean())
+
+                    loss = local_energy_loss + recons_loss + energy_reg
+
+                    if idx % 500 == 0:
+                        print("-------------LOSS--------------")
+                        print("total loss : ", loss)
+                        print("energy loss : ", local_energy_loss)
+                        print("recons loss : ", recons_loss)
+                        print("energy reg : ", energy_reg)
+                        print("-------------------------------")
+
+                    self.writer.add_scalar("total_loss", loss.item(), epoch * len(train_dataloader) + idx)
+                    self.writer.add_scalar("energy_loss", local_energy_loss.item(), epoch * len(train_dataloader) + idx)
+                    self.writer.add_scalar("recons loss", recons_loss.item(), epoch * len(train_dataloader) + idx)
+                    self.writer.add_scalar("pos energy", energy.sum().item(), epoch * len(train_dataloader) + idx)
+                    self.writer.add_scalar("neg energy", energy_neg_loc.sum().item(), epoch * len(train_dataloader) + idx)
+                    self.writer.add_scalar("reg energy", energy_reg.sum().item(), epoch * len(train_dataloader) + idx)
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.energy_model.parameters(), max_norm=1.0)
+                    optimizer.step()
+
+
 
                     # loss
                     # recon loss with all the traj steps

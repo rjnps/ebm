@@ -5,6 +5,7 @@
 *.npy
 datasets
 bert
+runs
 # Distribution / packaging
 .Python
 build/

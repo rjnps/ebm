@@ -19,15 +19,21 @@ def update_data_horizon(data, horizon):
         return data
 
 
-def data_numpy_tensor(data, device):
+def data_numpy_tensor(data, batch, device):
     if isinstance(data, dict):
         new_dict = {}
         for key, val in data.items():
-            new_dict[key] = data_numpy_tensor(val, device)
+            new_dict[key] = data_numpy_tensor(val, batch, device)
         return new_dict
-
     elif isinstance(data, np.ndarray):
-        return torch.from_numpy(data).to(device).requires_grad_(True)
+        data_ = torch.from_numpy(data).to(device).requires_grad_(True)
+        expand_shape = (batch,) + data_.shape
+        data_ = data_.unsqueeze(0).expand(*expand_shape)
+        return data_
+    elif isinstance(data, torch.Tensor):
+        expand_shape = (batch,) + data.shape
+        data_ = data.unsqueeze(0).expand(*expand_shape)
+        return data_
     else:
         return data
 

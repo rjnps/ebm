@@ -8,7 +8,7 @@ class DMP:
         self.cfg = args
         self.c = self._init_centers().to("cuda")  # Centers of basis functions
         self.sigma_sq = self._init_sigmas().to("cuda")
-        self.trajectory_length = int(self.cfg.tau/self.cfg.dt)
+        self.trajectory_length = int(self.cfg.tau/self.cfg.dt) - 1
 
     def _init_centers(self):
         return torch.exp(-self.cfg.alpha_y *

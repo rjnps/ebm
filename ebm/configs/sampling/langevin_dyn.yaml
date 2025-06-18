@@ -1,14 +1,14 @@
 num_steps: 20
 num_steps_neg: 20
 
-step_size_proprio: 1e-2
-step_size_static_img: 1e-2
-step_size_gripper_img: 1e-2
-step_size_latent: 1e-2
+step_size_proprio: 1e-4
+step_size_static_img: 1e-4
+step_size_gripper_img: 1e-4
+step_size_latent: 1e-4
 
-noise_scale_proprio: 1e-3
-noise_scale_static_img: 1e-3
-noise_scale_gripper_img: 1e-3
-noise_scale_latent: 1e-3
+noise_scale_proprio: 0.01414
+noise_scale_static_img: 0.01414
+noise_scale_gripper_img: 0.01414
+noise_scale_latent: 0.01414
 
 clip_grad_norm: 1.0

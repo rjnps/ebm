@@ -170,7 +170,7 @@ class EnergyModel(BasePolicy):
                           latent_token,
                           step_sizes,  # [proprio, static_img, gripper_img, latent]
                           noise_scales,
-                          clip_grad_norm=None  # 1.0
+                          clip_grad_norm=1.0  # 1.0
                           ):
 
         # past observations
@@ -277,12 +277,13 @@ class EnergyModel(BasePolicy):
                              latent_token,
                              step_size,  # [proprio, static_img, gripper_img, latent]
                              noise_scale,
-                             clip_grad_norm=None  # 1.0
+                             clip_grad_norm=1.0  # 1.0
                              ):
 
         # current observations
         latent_token = latent_token.clone().detach().requires_grad_(True)
         for _ in range(num_steps):
+            latent_token.requires_grad_(True)
             # compute energy
             x, c = self.encode_inp_cond(data,
                                         latent_token,
@@ -305,7 +306,7 @@ class EnergyModel(BasePolicy):
             # detaching gradients
             latent_token = latent_token.detach()
 
-            return latent_token
+        return latent_token
 
     def local_negative_sampling(self,
                                 data,

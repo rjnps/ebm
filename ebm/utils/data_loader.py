@@ -96,7 +96,7 @@ class LiberoDataset():
         fv = None
 
         data = self.datasets[0][0]
-        print(data['obs']['agentview_rgb'][0])
+        print(data['obs']['task_emb'])
         exit()
         for i in trange(self.n_tasks):
             train_dataloader = DataLoader(
