@@ -3,6 +3,7 @@ import torch.nn as nn
 from ebm.models.base_policy import BasePolicy
 from ebm.models.core_transformer import (CoreTransformer,
                                          MLPHead,
+                                         LatentNet,
                                          SinusoidalPositionalEncoding,
                                          AggregateFeatures)
 import copy
@@ -42,6 +43,14 @@ class EnergyModel(BasePolicy):
                                                 mlp_hidden_size=policy_cfg.transformer_mlp_hidden_size,
                                                 dropout=policy_cfg.transformer_dropout
                                                 )
+
+        self.latent_net = LatentNet(num_layers=4,
+                                    input_size=512,
+                                    input_size_cond=512,
+                                    num_heads=8,
+                                    head_output_size=64,
+                                    mlp_hidden_size=728,
+                                    dropout=0.1)
 
         self.energy_head = MLPHead(input_size=embed_size_inp,
                                    dropout=policy_cfg.policy_head.dropout)
@@ -91,8 +100,17 @@ class EnergyModel(BasePolicy):
         self.embed_size_inp = embed_size_inp
         self.batch_size = batch_size
 
-    def get_latent_from_observation(self, init_method):
-        raise NotImplementedError
+    def get_latent_from_observation(self,
+                                    init_method,
+                                    enc_img_static,
+                                    task_embs):
+        if init_method == "tfr_based":
+            img_enc = TensorUtils.join_dimensions(enc_img_static, 1, 2)  # [B, H*N, d]
+            task_enc = TensorUtils.join_dimensions(task_embs, 1, 2)  # [B, H*N, dc]
+            latent = self.latent_net(img_enc, task_enc)
+            return latent
+        else:
+            raise NotImplementedError
 
     def get_inputs_to_model(self, data):
         # proprio input
@@ -116,14 +134,14 @@ class EnergyModel(BasePolicy):
         else:
             return input_proprio, encoded_static_image_pre
 
-
     def encode_inp_cond(self,
                         data,
                         latent_token,
                         inp_proprio,  # [B, H, dims]
                         encoded_static_image_pre,  # [B*H, 2048]
                         encoded_gripper_image_pre,
-                        encode_task=True):  # [B*H, 2048]
+                        encode_task=True,
+                        include_latent=True,):  # [B*H, 2048]
         encoded_inp = []
 
         # encode proprioceptive observation
@@ -153,11 +171,12 @@ class EnergyModel(BasePolicy):
             encoded_text = None
 
         # adding latent tokens to the encoded input
-        expanded_latent_token = latent_token.view(B, 1, 1, self.embed_size_inp).expand(B, H, 1, self.embed_size_inp)
-        encoded_inp.append(expanded_latent_token)
+        if include_latent:
+            expanded_latent_token = latent_token.view(B, 1, 1, self.embed_size_inp).expand(B, H, 1, self.embed_size_inp)
+            encoded_inp.append(expanded_latent_token)
 
-        # concatenating over modality token dimension
-        encoded_inp = torch.cat(encoded_inp, dim=-2)
+            # concatenating over modality token dimension
+            encoded_inp = torch.cat(encoded_inp, dim=-2)
 
         return encoded_inp, encoded_text
 
@@ -170,7 +189,8 @@ class EnergyModel(BasePolicy):
                           latent_token,
                           step_sizes,  # [proprio, static_img, gripper_img, latent]
                           noise_scales,
-                          clip_grad_norm=1.0  # 1.0
+                          clip_grad_norm=1.0,  # 1.0
+                          include_latent=True
                           ):
 
         # past observations
@@ -188,7 +208,7 @@ class EnergyModel(BasePolicy):
             curr_img_gripper = encoded_gripper_image_pre[:, -1].clone().detach().requires_grad_(True).unsqueeze(1)
         latent_token = latent_token.clone().detach().requires_grad_(True)
 
-        for _ in range(num_steps):
+        for px in range(num_steps):
             # setting req grads to True as we detach in the last step of this loop
             curr_inp_proprio.requires_grad_(True)
             curr_img_static.requires_grad_(True)
@@ -210,9 +230,23 @@ class EnergyModel(BasePolicy):
                 full_img_gripper = full_img_gripper.reshape(B*H, -1)
 
             # compute energy
-            x, c = self.encode_inp_cond(data, latent_token, full_inp_proprio, full_img_static, full_img_gripper)
+            if include_latent:
+                x, c = self.encode_inp_cond(data, latent_token, full_inp_proprio, full_img_static, full_img_gripper)
+            else:
+                x_list, c = self.encode_inp_cond(data,
+                                                 None,
+                                                 full_inp_proprio,
+                                                 full_img_static,
+                                                 full_img_gripper,
+                                                 include_latent=False)
+
+                expanded_latent_token = latent_token.unsqueeze(2)
+                x_list.append(expanded_latent_token)
+
+                # concatenating over modality token dimension
+                x = torch.cat(x_list, dim=-2)
             energy, _ = self.core_transformer_decoder(x, c)  # scalar energy
-            energy = energy.sum()  # Making it scalar for grads to flow
+            energy = energy.mean()  # Making it scalar for grads to flow
 
             # compute gradients
             if self.cfg.encode_gripper_cam:
@@ -313,7 +347,8 @@ class EnergyModel(BasePolicy):
                                 inp_proprio,
                                 encoded_static_image_pre,
                                 encoded_gripper_image_pre,
-                                latent_token
+                                latent_token,
+                                include_latent=True
                                 ):
         step_sizes = [self.cfg.sampling.step_size_proprio,
                       self.cfg.sampling.step_size_static_img,
@@ -333,7 +368,8 @@ class EnergyModel(BasePolicy):
                                              latent_token=latent_token,
                                              step_sizes=step_sizes,
                                              noise_scales=noise_scales,
-                                             clip_grad_norm=self.cfg.sampling.clip_grad_norm)
+                                             clip_grad_norm=self.cfg.sampling.clip_grad_norm,
+                                             include_latent=include_latent)
 
         return neg_samples
 
@@ -371,29 +407,44 @@ class EnergyModel(BasePolicy):
             encoded_gripper_image_pre = None
 
         if self.cfg.policy.latent_token == "init_random":
+            include_latent = True
             latent_token = torch.randn(self.batch_size,
                                        self.embed_size_inp,
                                        device="cuda",
                                        requires_grad=True)
+
+            latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.sampling.num_steps,
+                                                     data=data,
+                                                     inp_proprio=inp_proprio,
+                                                     encoded_static_image_pre=encoded_static_image_pre,
+                                                     encoded_gripper_image_pre=encoded_gripper_image_pre,
+                                                     latent_token=latent_token,
+                                                     step_size=self.cfg.sampling.step_size_latent,
+                                                     noise_scale=0,  # self.cfg.sampling.noise_scale_latent,
+                                                     clip_grad_norm=self.cfg.sampling.clip_grad_norm)
+            x, c = self.encode_inp_cond(data,
+                                        latent_token,
+                                        inp_proprio,
+                                        encoded_static_image_pre,
+                                        encoded_gripper_image_pre)
         else:
-            # from observations
-            latent_token = self.get_latent_from_observation(self.cfg.policy.latent_token)
+            include_latent = False
+            x_list, c = self.encode_inp_cond(data,
+                                             None,
+                                             inp_proprio,
+                                             encoded_static_image_pre,
+                                             encoded_gripper_image_pre,
+                                             include_latent=False)
 
-        latent_token = self.mcmc_sampling_latent(num_steps=self.cfg.sampling.num_steps,
-                                                 data=data,
-                                                 inp_proprio=inp_proprio,
-                                                 encoded_static_image_pre=encoded_static_image_pre,
-                                                 encoded_gripper_image_pre=encoded_gripper_image_pre,
-                                                 latent_token=latent_token,
-                                                 step_size=self.cfg.sampling.step_size_latent,
-                                                 noise_scale=0,  # self.cfg.sampling.noise_scale_latent,
-                                                 clip_grad_norm=self.cfg.sampling.clip_grad_norm)
+            latent_token = self.get_latent_from_observation(self.cfg.policy.latent_token,
+                                                            x_list[1],
+                                                            c)  # [B, H, d]
 
-        x, c = self.encode_inp_cond(data,
-                                    latent_token,
-                                    inp_proprio,
-                                    encoded_static_image_pre,
-                                    encoded_gripper_image_pre)
+            expanded_latent_token = latent_token.unsqueeze(2)
+            x_list.append(expanded_latent_token)
+
+            # concatenating over modality token dimension
+            x = torch.cat(x_list, dim=-2)
 
         energy, latent_agg = self.core_transformer_decoder(x, c)
 
@@ -407,7 +458,9 @@ class EnergyModel(BasePolicy):
                                                    inp_proprio,
                                                    encoded_static_image_pre,
                                                    encoded_gripper_image_pre,
-                                                   latent_token)
+                                                   latent_token,
+                                                   include_latent=include_latent
+                                                   )
         if self.cfg.encode_gripper_cam:
             neg_inp_proprio, neg_img_static, neg_img_gripper, neg_latent_token = neg_samples
         else:
@@ -415,13 +468,27 @@ class EnergyModel(BasePolicy):
             neg_img_gripper = None
 
         # compute local -ve energy, for local CD loss
-        x, c = self.encode_inp_cond(data,
-                                    neg_latent_token,
-                                    neg_inp_proprio,
-                                    neg_img_static,
-                                    neg_img_gripper)
+        if include_latent:
+            n_x, n_c = self.encode_inp_cond(data,
+                                            neg_latent_token,
+                                            neg_inp_proprio,
+                                            neg_img_static,
+                                            neg_img_gripper)
+        else:
+            n_x_list, n_c = self.encode_inp_cond(data,
+                                                 neg_latent_token,
+                                                 neg_inp_proprio,
+                                                 neg_img_static,
+                                                 neg_img_gripper,
+                                                 include_latent=False)
 
-        energy_neg, latent_agg_neg = self.core_transformer_decoder(x, c)
+            expanded_neg_latent_token = neg_latent_token.unsqueeze(2)
+            n_x_list.append(expanded_neg_latent_token)
+
+            # concatenating over modality token dimension
+            n_x = torch.cat(n_x_list, dim=-2)
+
+        energy_neg, latent_agg_neg = self.core_transformer_decoder(n_x, n_c)
 
         return energy, weights, goal, energy_neg, latent_token
 

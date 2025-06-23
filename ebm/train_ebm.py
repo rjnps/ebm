@@ -50,6 +50,10 @@ class TrainEBM:
             embed_size_cond=self.cfg.policy.embed_size,
             load_encoded_data=True
             )
+
+        # for name, param in self.energy_model.named_parameters():
+        #     print(f"{name}: {param.shape}, {param.requires_grad}")
+
         self.energy_model.to(self.cfg.device)
         self.best_state_dict = self.energy_model.state_dict()
 
@@ -59,7 +63,8 @@ class TrainEBM:
 
     def train(self):
         t0 = time.time()
-        optimizer = torch.optim.Adam(lr=5e-5, params=self.energy_model.parameters(), weight_decay=1e-4)
+        loss_best = None
+        optimizer = torch.optim.Adam(lr=1e-3, params=self.energy_model.parameters(), weight_decay=1e-4)
         for i in trange(self.data_sets.n_tasks):
             train_dataloader = DataLoader(
                 self.data_sets.datasets[i],
@@ -117,7 +122,7 @@ class TrainEBM:
                     recons_loss = torch.nn.functional.mse_loss(traj_pos[..., :7].reshape(-1, 7),
                                                                data_['actions'].reshape(-1, 7).to(traj_pos.device))
 
-                    local_energy_loss = torch.mean(energy - energy_neg_loc)
+                    local_energy_loss = energy.mean() - energy_neg_loc.mean()
 
                     energy_reg = 1e-5 * ((energy ** 2).mean() + (energy_neg_loc ** 2).mean())
 
@@ -129,7 +134,13 @@ class TrainEBM:
                         print("energy loss : ", local_energy_loss)
                         print("recons loss : ", recons_loss)
                         print("energy reg : ", energy_reg)
+                        print("pos energy : ", energy.mean())
+                        print("neg energy : ", energy_neg_loc.mean())
                         print("-------------------------------")
+
+                        if loss_best is None or loss_best > recons_loss.item():
+                            loss_best = recons_loss.item()
+                            torch.save(self.energy_model.state_dict(), 'saves/best_model.pt')
 
                     self.writer.add_scalar("total_loss", loss.item(), epoch * len(train_dataloader) + idx)
                     self.writer.add_scalar("energy_loss", local_energy_loss.item(), epoch * len(train_dataloader) + idx)
@@ -140,7 +151,7 @@ class TrainEBM:
 
                     optimizer.zero_grad()
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.energy_model.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(self.energy_model.parameters(), max_norm=100)
                     optimizer.step()
 
 

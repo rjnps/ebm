@@ -254,6 +254,68 @@ class CoreTransformer(nn.Module):
         return next(self.parameters()).device
 
 
+class LatentNet(nn.Module):
+    def __init__(self,
+                 num_layers=4,
+                 input_size=512,
+                 input_size_cond=512,
+                 num_heads=8,
+                 head_output_size=64,
+                 mlp_hidden_size=728,
+                 dropout=0.1):
+        super().__init__()
+
+        self.layers = nn.ModuleList([])
+        self.drop_path = DropPath(dropout) if dropout > 0.0 else nn.Identity()
+        for _ in range(num_layers):
+            self.layers.append(
+                nn.ModuleList(
+                    [
+                        Norm(input_size),
+                        SelfAttention(input_size,
+                                      num_heads=num_heads,
+                                      head_out_size=head_output_size,
+                                      dropout=dropout),
+                        Norm(input_size),
+                        CrossAttention(input_size,
+                                       input_size_cond,
+                                       num_heads=num_heads,
+                                       head_out_size=head_output_size,
+                                       dropout=dropout
+                                       ),
+                        Norm(input_size),
+                        TransformerFeedForward(input_size,
+                                               mlp_hidden_size,
+                                               dropout),
+                    ]
+                )
+            )
+
+        self.mlp_head = nn.Sequential(
+            nn.Linear(input_size, 728),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(728, 512),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(512, input_size)
+        )
+
+    def forward(self, x, c):
+        for layer_idx, (attn_norm,
+                        self_attn,
+                        s_attn_norm,
+                        cross_attn,
+                        c_attn_norm,
+                        ff) in enumerate(self.layers):
+
+            x = x + drop_path(self_attn(attn_norm(x), None))
+            x = x + drop_path(cross_attn(s_attn_norm(x), c, None))
+            x = x + self.drop_path(ff(c_attn_norm(x)))
+        out = self.mlp_head(x)
+        return out
+
+
 class AggregateFeatures(nn.Module):
     def __init__(self, policy_cfg):
         super().__init__()

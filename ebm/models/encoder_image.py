@@ -14,6 +14,10 @@ class R3MEncoder(nn.Module):
         self.r3m_model.eval()
         self.r3m_model.to(device)
 
+        # freeze the model
+        for param in self.r3m_model.parameters():
+            param.requires_grad = False
+
     def forward(self, images):
         # input shape -> [B*H, c, h, w]
         # preprocess the input images

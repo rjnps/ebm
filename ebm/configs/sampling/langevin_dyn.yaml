@@ -1,14 +1,14 @@
-num_steps: 20
-num_steps_neg: 20
+num_steps: 30
+num_steps_neg: 500
 
-step_size_proprio: 1e-4
-step_size_static_img: 1e-4
-step_size_gripper_img: 1e-4
-step_size_latent: 1e-4
+step_size_proprio: 0.0005
+step_size_static_img: 0.0005
+step_size_gripper_img: 0.0005
+step_size_latent: 0.0005
 
-noise_scale_proprio: 0.01414
-noise_scale_static_img: 0.01414
-noise_scale_gripper_img: 0.01414
-noise_scale_latent: 0.01414
+noise_scale_proprio: 0.022
+noise_scale_static_img: 0.022
+noise_scale_gripper_img: 0.022
+noise_scale_latent: 0.022
 
 clip_grad_norm: 1.0
